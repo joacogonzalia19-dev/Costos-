@@ -2,19 +2,16 @@
 // Esto es INDEPENDIENTE del conector de Tienda Nube que usa Claude dentro de esta
 // sesión: la app corre por su cuenta y necesita sus propias credenciales.
 //
-// Cómo conseguirlas (dejalo también en el README):
-// 1. Entrá a tu panel de Tienda Nube > "Aplicaciones a medida" (menú lateral
-//    del administrador) > "Crear aplicación a medida".
-// 2. Elegí sólo los permisos que necesitás (lectura/modificación de
-//    productos y precios) — evitar "Acceso completo" salvo que haga falta.
-// 3. Al guardar, Tienda Nube genera el token automáticamente. Apretá
-//    "Revelar" y "Copiar token": sólo se muestra completo esa vez, después
-//    queda enmascarado para siempre (si se pierde, hay que revocarlo y
-//    crear uno nuevo).
-// 4. Cargá el Store ID (el número de tu tienda, visible en la URL del
-//    panel de administración) y el token desde la app misma (sección
-//    "Conectar tienda"), o como respaldo, en el archivo .env como
-//    TN_STORE_ID / TN_ACCESS_TOKEN.
+// Hay DOS formas de conseguir Store ID + Access Token (ver README):
+//
+// A) "Aplicaciones a medida" (menú del panel) — sólo disponible en los
+//    planes Escala/Evolución. Da el token directo, sin más trámite.
+//
+// B) OAuth vía Partner Portal (partners.tiendanube.com) — funciona en
+//    cualquier plan. Hace falta una cuenta de Partner gratuita y una app
+//    creada ahí (da un Client ID + Client Secret), y esta app expone las
+//    rutas /oauth/start y /oauth/callback para completar el intercambio
+//    automáticamente y guardar storeId + accessToken.
 //
 // Formato de la API según la documentación oficial (dev.tiendanube.com /
 // tiendanube.github.io/api-documentation): URL versionada por fecha, header
@@ -23,6 +20,7 @@
 import * as store from './store.mjs';
 
 const API_BASE = 'https://api.tiendanube.com/2025-03';
+const AUTHORIZE_TOKEN_URL = 'https://www.tiendanube.com/apps/authorize/token';
 
 async function getConfig() {
   const saved = await store.getTiendaNubeConfig();
@@ -42,6 +40,73 @@ export async function isConfigured() {
 export async function getPublicConfig() {
   const { storeId, accessToken, userAgent } = await getConfig();
   return { storeId, userAgent, hasToken: Boolean(accessToken) };
+}
+
+async function getOAuthAppConfig() {
+  const saved = await store.getTiendaNubeConfig();
+  return {
+    clientId: saved.clientId || process.env.TN_CLIENT_ID || '',
+    clientSecret: saved.clientSecret || process.env.TN_CLIENT_SECRET || '',
+  };
+}
+
+/** Estado de la app OAuth (Partner Portal), sin exponer el client secret. */
+export async function getOAuthPublicConfig() {
+  const { clientId, clientSecret } = await getOAuthAppConfig();
+  return { clientId, hasClientSecret: Boolean(clientSecret) };
+}
+
+/** URL a la que hay que mandar al usuario para autorizar la instalación. */
+export async function buildAuthorizeUrl() {
+  const { clientId } = await getOAuthAppConfig();
+  if (!clientId) {
+    throw new Error('Falta el Client ID de la app (Partner Portal).');
+  }
+  return `https://www.tiendanube.com/apps/${clientId}/authorize`;
+}
+
+/**
+ * Intercambia el "code" recibido en /oauth/callback por un access_token
+ * definitivo, y de paso guarda storeId + accessToken. Devuelve el
+ * resultado guardado (sin el token, para poder mostrarlo en la UI).
+ */
+export async function completeOAuth(code) {
+  const { clientId, clientSecret } = await getOAuthAppConfig();
+  if (!clientId || !clientSecret) {
+    throw new Error('Falta el Client ID/Client Secret de la app (Partner Portal).');
+  }
+
+  const res = await fetch(AUTHORIZE_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'authorization_code',
+      code,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`No se pudo intercambiar el código por un token (${res.status}): ${body}`);
+  }
+
+  const data = await res.json();
+  // OJO: este endpoint responde 200 OK incluso cuando las credenciales son
+  // inválidas o el code expiró/no es válido — el error viene en el body
+  // (ej. {"error":"invalid_client","error_description":"..."}), no en el
+  // status HTTP. Hay que revisarlo explícitamente antes de asumir éxito.
+  if (data.error || !data.access_token || !data.user_id) {
+    throw new Error(data.error_description || data.error || 'Tienda Nube no devolvió un access_token válido.');
+  }
+
+  await store.saveTiendaNubeConfig({
+    storeId: String(data.user_id),
+    accessToken: data.access_token,
+  });
+
+  return { storeId: String(data.user_id), scope: data.scope };
 }
 
 async function tnFetch(pathname, options = {}) {

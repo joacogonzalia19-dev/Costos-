@@ -48,6 +48,52 @@ app.put('/api/tiendanube/config', async (req, res) => {
   }
 });
 
+// Datos de la app de Partner Portal (Client ID / Client Secret) para el
+// flujo OAuth, que funciona en cualquier plan de Tienda Nube.
+app.get('/api/tiendanube/oauth-config', async (req, res) => {
+  res.json(await tiendanube.getOAuthPublicConfig());
+});
+
+app.put('/api/tiendanube/oauth-config', async (req, res) => {
+  try {
+    const { clientId, clientSecret } = req.body || {};
+    await store.saveTiendaNubeConfig({ clientId, clientSecret });
+    res.json(await tiendanube.getOAuthPublicConfig());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Arranca el flujo OAuth: manda al usuario a autorizar la instalación en
+// Tienda Nube. El redirect_uri de vuelta se configura UNA VEZ en el Partner
+// Portal (no se pasa acá) y debe apuntar a /oauth/callback en esta app.
+app.get('/oauth/start', async (req, res) => {
+  try {
+    const url = await tiendanube.buildAuthorizeUrl();
+    res.redirect(url);
+  } catch (err) {
+    res.redirect(`/?oauthError=${encodeURIComponent(err.message)}`);
+  }
+});
+
+// Vuelta del flujo OAuth: Tienda Nube redirige acá con ?code=... . Lo
+// canjeamos por un access_token real y guardamos storeId + accessToken.
+app.get('/oauth/callback', async (req, res) => {
+  const { code, error, error_description: errorDescription } = req.query;
+  if (error) {
+    return res.redirect(`/?oauthError=${encodeURIComponent(errorDescription || error)}`);
+  }
+  if (!code) {
+    return res.redirect(`/?oauthError=${encodeURIComponent('Tienda Nube no envió un código de autorización.')}`);
+  }
+  try {
+    const result = await tiendanube.completeOAuth(code);
+    res.redirect(`/?oauthSuccess=${encodeURIComponent(result.storeId)}`);
+  } catch (err) {
+    res.redirect(`/?oauthError=${encodeURIComponent(err.message)}`);
+  }
+});
+
 // Prueba las credenciales guardadas contra la API real de Tienda Nube (sin
 // modificar nada), para poder mostrar "conexión exitosa" o el error puntual.
 app.post('/api/tiendanube/test', async (req, res) => {

@@ -8,6 +8,7 @@ const state = {
   products: [],
   configured: false,
   tiendanubeConfig: null,
+  oauthConfig: null,
 };
 
 async function api(path, options) {
@@ -29,20 +30,37 @@ function fractionFromPercentInput(value) {
 }
 
 async function loadAll() {
-  const [settings, statusResp, productsResp, tnConfig] = await Promise.all([
+  const [settings, statusResp, productsResp, tnConfig, oauthConfig] = await Promise.all([
     api('/api/settings'),
     api('/api/tiendanube/status'),
     api('/api/products'),
     api('/api/tiendanube/config'),
+    api('/api/tiendanube/oauth-config'),
   ]);
   state.settings = settings;
   state.configured = statusResp.configured;
   state.products = productsResp.products;
   state.tiendanubeConfig = tnConfig;
+  state.oauthConfig = oauthConfig;
   renderStatus();
   renderSettingsForm();
   renderTiendaNubeForm();
+  renderOAuthForm();
   renderProductsTable();
+}
+
+/** Muestra el resultado del flujo OAuth (?oauthSuccess=storeId / ?oauthError=mensaje) y limpia la URL. */
+function renderOAuthFlash() {
+  const params = new URLSearchParams(window.location.search);
+  const flashEl = document.getElementById('oauth-flash');
+  if (params.has('oauthSuccess')) {
+    flashEl.textContent = `✅ Conectado correctamente (Store ID ${params.get('oauthSuccess')}).`;
+  } else if (params.has('oauthError')) {
+    flashEl.textContent = `❌ No se pudo conectar: ${params.get('oauthError')}`;
+  } else {
+    return;
+  }
+  window.history.replaceState({}, '', window.location.pathname);
 }
 
 function renderStatus() {
@@ -54,6 +72,17 @@ function renderStatus() {
     badge.textContent = 'Modo manual (Tienda Nube no configurada)';
     badge.classList.remove('connected');
   }
+}
+
+function renderOAuthForm() {
+  const cfg = state.oauthConfig;
+  document.getElementById('tn-clientId').value = cfg.clientId || '';
+  document.getElementById('tn-clientSecret').placeholder = cfg.hasClientSecret
+    ? '•••••••• (ya hay uno guardado; dejar vacío para no cambiarlo)'
+    : 'Pegá acá tu Client Secret';
+  const startBtn = document.getElementById('oauth-start-btn');
+  startBtn.disabled = !cfg.clientId;
+  startBtn.title = cfg.clientId ? '' : 'Primero guardá el Client ID y Client Secret.';
 }
 
 function renderTiendaNubeForm() {
@@ -202,6 +231,23 @@ document.getElementById('settings-form').addEventListener('submit', async (e) =>
   await loadAll();
 });
 
+document.getElementById('oauth-config-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await api('/api/tiendanube/oauth-config', {
+    method: 'PUT',
+    body: JSON.stringify({
+      clientId: document.getElementById('tn-clientId').value.trim(),
+      clientSecret: document.getElementById('tn-clientSecret').value.trim(),
+    }),
+  });
+  document.getElementById('tn-clientSecret').value = '';
+  await loadAll();
+});
+
+document.getElementById('oauth-start-btn').addEventListener('click', () => {
+  window.location.href = '/oauth/start';
+});
+
 document.getElementById('tiendanube-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const resultEl = document.getElementById('tn-test-result');
@@ -250,6 +296,7 @@ document.getElementById('add-product-form').addEventListener('submit', async (e)
   await loadAll();
 });
 
+renderOAuthFlash();
 loadAll().catch((err) => {
   console.error(err);
   alert(`No se pudo cargar la app: ${err.message}`);

@@ -100,7 +100,13 @@ export async function createManualProduct({ name, price, cost, shipping }) {
 // data/tiendanube.json, en vez de requerir que edites el .env a mano y
 // reinicies el servidor cada vez. Ese archivo está en .gitignore: nunca se
 // commitea ni sale de tu máquina/servidor.
-const DEFAULT_TIENDANUBE_CONFIG = { storeId: '', accessToken: '', userAgent: '' };
+// clientId/clientSecret son de una app creada en el Partner Portal
+// (partners.tiendanube.com) y sirven para el flujo OAuth ("Conectar con
+// Tienda Nube"), disponible en cualquier plan. storeId/accessToken son el
+// resultado final de ese flujo (o, alternativamente, se pueden cargar a
+// mano si tenés "Aplicaciones a medida", exclusivo de los planes
+// Escala/Evolución).
+const DEFAULT_TIENDANUBE_CONFIG = { storeId: '', accessToken: '', userAgent: '', clientId: '', clientSecret: '' };
 
 export async function getTiendaNubeConfig() {
   const stored = await readJson(TIENDANUBE_FILE, null);
@@ -109,12 +115,14 @@ export async function getTiendaNubeConfig() {
 
 export async function saveTiendaNubeConfig(partial) {
   const current = await getTiendaNubeConfig();
-  // Si accessToken viene vacío/undefined, mantenemos el que ya estaba guardado
-  // (para poder actualizar sólo el Store ID sin tener que volver a pegar el token).
+  // Los campos "secretos" (accessToken, clientSecret) sólo se pisan si viene
+  // un valor nuevo no vacío: así se puede actualizar el resto sin tener que
+  // volver a pegarlos cada vez.
   const next = {
     ...current,
     ...partial,
     accessToken: partial.accessToken ? partial.accessToken : current.accessToken,
+    clientSecret: partial.clientSecret ? partial.clientSecret : current.clientSecret,
   };
   await writeJson(TIENDANUBE_FILE, next);
   return next;

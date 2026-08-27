@@ -15,11 +15,33 @@
   <main>
     <section id="tiendanube-section" class="card">
       <h2>Conectar Tienda Nube</h2>
+      <p id="oauth-flash" class="muted"></p>
+
+      <h3>Opción 1: Conectar con Tienda Nube (cualquier plan)</h3>
       <p class="muted">
-        Creá una aplicación privada desde tu panel de Tienda Nube
-        (Configuración → Mis aplicaciones) para conseguir estos datos. El
-        access token se guarda sólo en este servidor, nunca se muestra de
-        nuevo ni se sube a ningún repositorio.
+        Necesita una app creada gratis en el
+        <a href="https://partners.tiendanube.com" target="_blank" rel="noopener">Partner Portal</a>
+        de Tienda Nube. Configurá ahí el "Redirect URL" apuntando a
+        <code>(la URL de esta app)/oauth/callback</code>, y pegá acá el
+        Client ID y Client Secret que te da esa app.
+      </p>
+      <form id="oauth-config-form" class="settings-grid">
+        <label>
+          Client ID
+          <input type="text" id="tn-clientId" placeholder="123456" />
+        </label>
+        <label>
+          Client Secret
+          <input type="password" id="tn-clientSecret" placeholder="•••••••• (dejar vacío para no cambiarlo)" />
+        </label>
+        <button type="submit">Guardar datos de la app</button>
+      </form>
+      <p><button type="button" id="oauth-start-btn">Conectar con Tienda Nube</button></p>
+
+      <h3>Opción 2: Aplicación a medida (sólo planes Escala/Evolución)</h3>
+      <p class="muted">
+        Si tu plan incluye "Aplicaciones a medida" en el panel, es más
+        directo: te da el token sin pasar por Partner Portal.
       </p>
       <form id="tiendanube-form" class="settings-grid">
         <label>
