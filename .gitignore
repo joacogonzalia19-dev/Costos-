@@ -1,0 +1,6 @@
+node_modules/
+.env
+
+# Datos locales (costos guardados, productos manuales). Contienen información
+# de negocio del usuario y se generan solos al correr la app la primera vez.
+data/*.json
