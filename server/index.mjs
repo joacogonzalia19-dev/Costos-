@@ -29,8 +29,37 @@ function effectiveInputs(settings, productData) {
   };
 }
 
-app.get('/api/tiendanube/status', (req, res) => {
-  res.json({ configured: tiendanube.isConfigured() });
+app.get('/api/tiendanube/status', async (req, res) => {
+  res.json({ configured: await tiendanube.isConfigured() });
+});
+
+// Devuelve el Store ID y si hay un token guardado, pero NUNCA el token en sí.
+app.get('/api/tiendanube/config', async (req, res) => {
+  res.json(await tiendanube.getPublicConfig());
+});
+
+app.put('/api/tiendanube/config', async (req, res) => {
+  try {
+    const { storeId, accessToken, userAgent } = req.body || {};
+    await store.saveTiendaNubeConfig({ storeId, accessToken, userAgent });
+    res.json(await tiendanube.getPublicConfig());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Prueba las credenciales guardadas contra la API real de Tienda Nube (sin
+// modificar nada), para poder mostrar "conexión exitosa" o el error puntual.
+app.post('/api/tiendanube/test', async (req, res) => {
+  try {
+    if (!(await tiendanube.isConfigured())) {
+      return res.status(400).json({ ok: false, error: 'Falta el Store ID o el Access Token.' });
+    }
+    const result = await tiendanube.testConnection();
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
 });
 
 app.get('/api/settings', async (req, res) => {
@@ -49,7 +78,7 @@ app.get('/api/products', async (req, res) => {
   try {
     const settings = await store.getSettings();
     const allProductData = await store.getAllProductData();
-    const configured = tiendanube.isConfigured();
+    const configured = await tiendanube.isConfigured();
 
     let items = [];
 
@@ -151,7 +180,7 @@ app.delete('/api/products/manual/:id', async (req, res) => {
 // Calcula el precio sugerido y lo aplica directamente en Tienda Nube.
 app.post('/api/products/:id/apply-price', async (req, res) => {
   try {
-    if (!tiendanube.isConfigured()) {
+    if (!(await tiendanube.isConfigured())) {
       return res.status(400).json({ error: 'Tienda Nube no está configurada.' });
     }
     const { variantId } = req.body || {};
@@ -176,11 +205,11 @@ app.post('/api/products/:id/apply-price', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Costos- corriendo en http://localhost:${PORT}`);
   console.log(
-    tiendanube.isConfigured()
+    (await tiendanube.isConfigured())
       ? 'Tienda Nube: conectada.'
-      : 'Tienda Nube: no configurada (modo manual). Ver .env.example.',
+      : 'Tienda Nube: no configurada. Conectala desde la sección "Conectar tienda" en la app.',
   );
 });

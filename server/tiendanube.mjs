@@ -7,29 +7,39 @@
 //    https://www.tiendanube.com/apps si tenés cuenta de partner) y creá una
 //    "aplicación privada" para tu propia tienda.
 // 2. Tiendanube te da un Store ID (el número de tu tienda) y un Access Token.
-// 3. Cargalos en el archivo .env como TN_STORE_ID y TN_ACCESS_TOKEN.
+// 3. Cargalos desde la app misma (sección "Conectar tienda"), o como
+//    respaldo, en el archivo .env como TN_STORE_ID / TN_ACCESS_TOKEN.
 //
 // La API requiere además un header "User-Agent" que identifique la app y un
 // contacto (lo pide Tienda Nube para poder contactarte si hay un problema).
+import * as store from './store.mjs';
 
 const API_BASE = 'https://api.tiendanube.com/v1';
 
-function getConfig() {
-  const storeId = process.env.TN_STORE_ID;
-  const accessToken = process.env.TN_ACCESS_TOKEN;
-  const userAgent = process.env.TN_USER_AGENT || 'Costos- App (sin contacto configurado)';
-  return { storeId, accessToken, userAgent };
+async function getConfig() {
+  const saved = await store.getTiendaNubeConfig();
+  return {
+    storeId: saved.storeId || process.env.TN_STORE_ID || '',
+    accessToken: saved.accessToken || process.env.TN_ACCESS_TOKEN || '',
+    userAgent: saved.userAgent || process.env.TN_USER_AGENT || 'Costos- App (sin contacto configurado)',
+  };
 }
 
-export function isConfigured() {
-  const { storeId, accessToken } = getConfig();
+export async function isConfigured() {
+  const { storeId, accessToken } = await getConfig();
   return Boolean(storeId && accessToken);
 }
 
+/** Estado de configuración sin exponer el access token (para mostrar en la UI). */
+export async function getPublicConfig() {
+  const { storeId, accessToken, userAgent } = await getConfig();
+  return { storeId, userAgent, hasToken: Boolean(accessToken) };
+}
+
 async function tnFetch(pathname, options = {}) {
-  const { storeId, accessToken, userAgent } = getConfig();
+  const { storeId, accessToken, userAgent } = await getConfig();
   if (!storeId || !accessToken) {
-    throw new Error('Tienda Nube no está configurada (faltan TN_STORE_ID / TN_ACCESS_TOKEN en .env).');
+    throw new Error('Tienda Nube no está configurada (faltan Store ID / Access Token).');
   }
 
   const url = `${API_BASE}/${storeId}${pathname}`;
@@ -88,4 +98,15 @@ export async function updateVariantPrice(productId, variantId, price) {
     method: 'PUT',
     body: JSON.stringify({ price: Number(price).toFixed(2) }),
   });
+}
+
+/**
+ * Prueba las credenciales guardadas contra la API real, sin modificar nada:
+ * pide los datos de la tienda (endpoint de sólo lectura). Se usa desde el
+ * botón "Probar conexión" en la interfaz.
+ */
+export async function testConnection() {
+  const info = await tnFetch('/store');
+  const name = info?.name?.es || info?.name?.pt || Object.values(info?.name || {})[0] || null;
+  return { storeName: name, url: info?.url || null };
 }

@@ -13,6 +13,33 @@
   </header>
 
   <main>
+    <section id="tiendanube-section" class="card">
+      <h2>Conectar Tienda Nube</h2>
+      <p class="muted">
+        Creá una aplicación privada desde tu panel de Tienda Nube
+        (Configuración → Mis aplicaciones) para conseguir estos datos. El
+        access token se guarda sólo en este servidor, nunca se muestra de
+        nuevo ni se sube a ningún repositorio.
+      </p>
+      <form id="tiendanube-form" class="settings-grid">
+        <label>
+          Store ID
+          <input type="text" id="tn-storeId" placeholder="1234567" />
+        </label>
+        <label>
+          Access Token
+          <input type="password" id="tn-accessToken" placeholder="•••••••• (dejar vacío para no cambiarlo)" />
+        </label>
+        <label>
+          User-Agent (app + tu email)
+          <input type="text" id="tn-userAgent" placeholder="Costos- App (tu-email@ejemplo.com)" />
+        </label>
+        <button type="submit">Guardar credenciales</button>
+        <button type="button" id="tn-test-btn" class="secondary">Probar conexión</button>
+      </form>
+      <p id="tn-test-result" class="muted"></p>
+    </section>
+
     <section id="settings-section" class="card">
       <h2>Ajustes por defecto</h2>
       <p class="muted">

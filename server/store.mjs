@@ -9,6 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
+const TIENDANUBE_FILE = path.join(DATA_DIR, 'tiendanube.json');
 
 export const DEFAULT_SETTINGS = {
   currency: 'ARS',
@@ -93,4 +94,28 @@ export async function createManualProduct({ name, price, cost, shipping }) {
     manual: { name: name || 'Producto sin nombre', price: Number(price) || 0 },
   });
   return id;
+}
+
+// Credenciales de Tienda Nube (Store ID + Access Token). Se guardan acá, en
+// data/tiendanube.json, en vez de requerir que edites el .env a mano y
+// reinicies el servidor cada vez. Ese archivo está en .gitignore: nunca se
+// commitea ni sale de tu máquina/servidor.
+const DEFAULT_TIENDANUBE_CONFIG = { storeId: '', accessToken: '', userAgent: '' };
+
+export async function getTiendaNubeConfig() {
+  const stored = await readJson(TIENDANUBE_FILE, null);
+  return { ...DEFAULT_TIENDANUBE_CONFIG, ...(stored || {}) };
+}
+
+export async function saveTiendaNubeConfig(partial) {
+  const current = await getTiendaNubeConfig();
+  // Si accessToken viene vacío/undefined, mantenemos el que ya estaba guardado
+  // (para poder actualizar sólo el Store ID sin tener que volver a pegar el token).
+  const next = {
+    ...current,
+    ...partial,
+    accessToken: partial.accessToken ? partial.accessToken : current.accessToken,
+  };
+  await writeJson(TIENDANUBE_FILE, next);
+  return next;
 }

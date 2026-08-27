@@ -36,18 +36,32 @@ npm start
 
 Abrí http://localhost:3000
 
-Sin editar `.env`, la app arranca en **modo manual**: no toca ninguna tienda
+Sin conectar nada, la app arranca en **modo manual**: no toca ninguna tienda
 real, y podés cargar productos a mano para probar la calculadora.
 
 ## Conectar tu tienda de Tienda Nube (opcional)
 
+Se hace directamente desde la app, en la sección **"Conectar Tienda Nube"**
+— no hace falta editar archivos ni reiniciar el servidor:
+
 1. Entrá al panel de administración de tu tienda → **Configuración** →
    **Mis aplicaciones** → creá una aplicación privada para tu propia tienda.
 2. Tiendanube te va a dar un **Store ID** y un **Access Token**.
-3. Completá `TN_STORE_ID`, `TN_ACCESS_TOKEN` y `TN_USER_AGENT` en tu `.env`
-   (mirá `.env.example`).
-4. Reiniciá la app (`npm start`). Arriba a la derecha va a decir
+3. Pegalos en el formulario "Conectar Tienda Nube" de la app, junto con un
+   User-Agent que te identifique (Tienda Nube lo pide para poder
+   contactarte si hay un problema, ej. `Costos- App (tu-email@ejemplo.com)`).
+4. Apretá **"Guardar credenciales"** y después **"Probar conexión"** para
+   confirmar que están bien. Si todo OK, arriba a la derecha va a decir
    "Tienda Nube conectada" y vas a ver tus productos reales.
+
+Las credenciales se guardan en `data/tiendanube.json`, un archivo local que
+está en `.gitignore` — nunca se commitea ni sale de tu servidor. La interfaz
+nunca vuelve a mostrar el Access Token una vez guardado (sólo indica si hay
+uno cargado); si querés cambiarlo, simplemente pegá uno nuevo.
+
+Como alternativa (por ejemplo para un despliegue sin interfaz), también se
+pueden definir `TN_STORE_ID`, `TN_ACCESS_TOKEN` y `TN_USER_AGENT` en `.env`
+— se usan como respaldo si no hay nada guardado desde la app.
 
 Importante: Tienda Nube no tiene un campo de "costo" ni "margen" por
 producto, así que esos datos se guardan localmente en `data/products.json`

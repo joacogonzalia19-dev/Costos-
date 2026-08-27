@@ -7,6 +7,7 @@ const state = {
   settings: null,
   products: [],
   configured: false,
+  tiendanubeConfig: null,
 };
 
 async function api(path, options) {
@@ -28,16 +29,19 @@ function fractionFromPercentInput(value) {
 }
 
 async function loadAll() {
-  const [settings, statusResp, productsResp] = await Promise.all([
+  const [settings, statusResp, productsResp, tnConfig] = await Promise.all([
     api('/api/settings'),
     api('/api/tiendanube/status'),
     api('/api/products'),
+    api('/api/tiendanube/config'),
   ]);
   state.settings = settings;
   state.configured = statusResp.configured;
   state.products = productsResp.products;
+  state.tiendanubeConfig = tnConfig;
   renderStatus();
   renderSettingsForm();
+  renderTiendaNubeForm();
   renderProductsTable();
 }
 
@@ -50,6 +54,15 @@ function renderStatus() {
     badge.textContent = 'Modo manual (Tienda Nube no configurada)';
     badge.classList.remove('connected');
   }
+}
+
+function renderTiendaNubeForm() {
+  const cfg = state.tiendanubeConfig;
+  document.getElementById('tn-storeId').value = cfg.storeId || '';
+  document.getElementById('tn-userAgent').value = cfg.userAgent || '';
+  document.getElementById('tn-accessToken').placeholder = cfg.hasToken
+    ? '•••••••• (ya hay un token guardado; dejar vacío para no cambiarlo)'
+    : 'Pegá acá tu Access Token';
 }
 
 function renderSettingsForm() {
@@ -187,6 +200,41 @@ document.getElementById('settings-form').addEventListener('submit', async (e) =>
     }),
   });
   await loadAll();
+});
+
+document.getElementById('tiendanube-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const resultEl = document.getElementById('tn-test-result');
+  resultEl.textContent = '';
+  try {
+    await api('/api/tiendanube/config', {
+      method: 'PUT',
+      body: JSON.stringify({
+        storeId: document.getElementById('tn-storeId').value.trim(),
+        accessToken: document.getElementById('tn-accessToken').value.trim(),
+        userAgent: document.getElementById('tn-userAgent').value.trim(),
+      }),
+    });
+    document.getElementById('tn-accessToken').value = '';
+    await loadAll();
+    resultEl.textContent = 'Credenciales guardadas.';
+  } catch (err) {
+    resultEl.textContent = `No se pudieron guardar: ${err.message}`;
+  }
+});
+
+document.getElementById('tn-test-btn').addEventListener('click', async () => {
+  const resultEl = document.getElementById('tn-test-result');
+  resultEl.textContent = 'Probando conexión…';
+  try {
+    const result = await api('/api/tiendanube/test', { method: 'POST' });
+    resultEl.textContent = result.storeName
+      ? `✅ Conectado correctamente a "${result.storeName}".`
+      : '✅ Conectado correctamente.';
+    await loadAll();
+  } catch (err) {
+    resultEl.textContent = `❌ ${err.message}`;
+  }
 });
 
 document.getElementById('add-product-form').addEventListener('submit', async (e) => {
