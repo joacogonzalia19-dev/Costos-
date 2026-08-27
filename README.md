@@ -44,13 +44,23 @@ real, y podés cargar productos a mano para probar la calculadora.
 Se hace directamente desde la app, en la sección **"Conectar Tienda Nube"**
 — no hace falta editar archivos ni reiniciar el servidor:
 
-1. Entrá al panel de administración de tu tienda → **Configuración** →
-   **Mis aplicaciones** → creá una aplicación privada para tu propia tienda.
-2. Tiendanube te va a dar un **Store ID** y un **Access Token**.
-3. Pegalos en el formulario "Conectar Tienda Nube" de la app, junto con un
-   User-Agent que te identifique (Tienda Nube lo pide para poder
-   contactarte si hay un problema, ej. `Costos- App (tu-email@ejemplo.com)`).
-4. Apretá **"Guardar credenciales"** y después **"Probar conexión"** para
+1. En el panel de administración de tu tienda, andá al menú lateral
+   **"Aplicaciones a medida"** → **"Crear aplicación a medida"**.
+2. Ponele un nombre descriptivo (ej. "Costos- App") y en **"Perfiles de
+   acceso"** elegí sólo los permisos de **Productos** (lectura y
+   modificación) — evitá "Acceso completo" salvo que lo necesites.
+3. Guardá. Tienda Nube genera el token automáticamente. Apretá **"Revelar"**
+   y **"Copiar token"** — **sólo se muestra completo esa vez**; si lo
+   perdés hay que revocarlo y crear uno nuevo.
+4. Conseguí también tu **Store ID** (no aparece en esa pantalla): entrá a
+   tu tienda pública (botón "Visitar tienda"), hacé click derecho → "Ver
+   código fuente" (Ctrl+U), buscá `LS.store = {` con Ctrl+F, y ahí vas a
+   ver el `id` numérico de tu tienda.
+5. Volvé a la app de Costos-, pegá el Store ID y el Access Token en el
+   formulario **"Conectar Tienda Nube"**, junto con un User-Agent que te
+   identifique (Tienda Nube lo pide para poder contactarte si hay un
+   problema, ej. `Costos- App (tu-email@ejemplo.com)`).
+6. Apretá **"Guardar credenciales"** y después **"Probar conexión"** para
    confirmar que están bien. Si todo OK, arriba a la derecha va a decir
    "Tienda Nube conectada" y vas a ver tus productos reales.
 

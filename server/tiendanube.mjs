@@ -3,18 +3,26 @@
 // sesión: la app corre por su cuenta y necesita sus propias credenciales.
 //
 // Cómo conseguirlas (dejalo también en el README):
-// 1. Entrá a tu panel de Tienda Nube > "Configuración" > "Mis aplicaciones" (o
-//    https://www.tiendanube.com/apps si tenés cuenta de partner) y creá una
-//    "aplicación privada" para tu propia tienda.
-// 2. Tiendanube te da un Store ID (el número de tu tienda) y un Access Token.
-// 3. Cargalos desde la app misma (sección "Conectar tienda"), o como
-//    respaldo, en el archivo .env como TN_STORE_ID / TN_ACCESS_TOKEN.
+// 1. Entrá a tu panel de Tienda Nube > "Aplicaciones a medida" (menú lateral
+//    del administrador) > "Crear aplicación a medida".
+// 2. Elegí sólo los permisos que necesitás (lectura/modificación de
+//    productos y precios) — evitar "Acceso completo" salvo que haga falta.
+// 3. Al guardar, Tienda Nube genera el token automáticamente. Apretá
+//    "Revelar" y "Copiar token": sólo se muestra completo esa vez, después
+//    queda enmascarado para siempre (si se pierde, hay que revocarlo y
+//    crear uno nuevo).
+// 4. Cargá el Store ID (el número de tu tienda, visible en la URL del
+//    panel de administración) y el token desde la app misma (sección
+//    "Conectar tienda"), o como respaldo, en el archivo .env como
+//    TN_STORE_ID / TN_ACCESS_TOKEN.
 //
-// La API requiere además un header "User-Agent" que identifique la app y un
-// contacto (lo pide Tienda Nube para poder contactarte si hay un problema).
+// Formato de la API según la documentación oficial (dev.tiendanube.com /
+// tiendanube.github.io/api-documentation): URL versionada por fecha, header
+// "Authorization: Bearer <token>", y un "User-Agent" obligatorio que
+// identifique la app y un contacto — sin él, la API responde 400.
 import * as store from './store.mjs';
 
-const API_BASE = 'https://api.tiendanube.com/v1';
+const API_BASE = 'https://api.tiendanube.com/2025-03';
 
 async function getConfig() {
   const saved = await store.getTiendaNubeConfig();
@@ -46,7 +54,7 @@ async function tnFetch(pathname, options = {}) {
   const res = await fetch(url, {
     ...options,
     headers: {
-      Authentication: `bearer ${accessToken}`,
+      Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
       'User-Agent': userAgent,
       ...(options.headers || {}),
