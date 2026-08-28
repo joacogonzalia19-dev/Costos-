@@ -9,59 +9,9 @@
 <body>
   <header class="topbar">
     <h1>Costos-</h1>
-    <span id="tn-status" class="badge">Cargando…</span>
   </header>
 
   <main>
-    <section id="tiendanube-section" class="card">
-      <h2>Conectar Tienda Nube</h2>
-      <p id="oauth-flash" class="muted"></p>
-
-      <h3>Opción 1: Conectar con Tienda Nube (cualquier plan)</h3>
-      <p class="muted">
-        Necesita una app creada gratis en el
-        <a href="https://partners.tiendanube.com" target="_blank" rel="noopener">Partner Portal</a>
-        de Tienda Nube. Configurá ahí el "Redirect URL" apuntando a
-        <code>(la URL de esta app)/oauth/callback</code>, y pegá acá el
-        Client ID y Client Secret que te da esa app.
-      </p>
-      <form id="oauth-config-form" class="settings-grid">
-        <label>
-          Client ID
-          <input type="text" id="tn-clientId" placeholder="123456" />
-        </label>
-        <label>
-          Client Secret
-          <input type="password" id="tn-clientSecret" placeholder="•••••••• (dejar vacío para no cambiarlo)" />
-        </label>
-        <button type="submit">Guardar datos de la app</button>
-      </form>
-      <p><button type="button" id="oauth-start-btn">Conectar con Tienda Nube</button></p>
-
-      <h3>Opción 2: Aplicación a medida (sólo planes Escala/Evolución)</h3>
-      <p class="muted">
-        Si tu plan incluye "Aplicaciones a medida" en el panel, es más
-        directo: te da el token sin pasar por Partner Portal.
-      </p>
-      <form id="tiendanube-form" class="settings-grid">
-        <label>
-          Store ID
-          <input type="text" id="tn-storeId" placeholder="1234567" />
-        </label>
-        <label>
-          Access Token
-          <input type="password" id="tn-accessToken" placeholder="•••••••• (dejar vacío para no cambiarlo)" />
-        </label>
-        <label>
-          User-Agent (app + tu email)
-          <input type="text" id="tn-userAgent" placeholder="Costos- App (tu-email@ejemplo.com)" />
-        </label>
-        <button type="submit">Guardar credenciales</button>
-        <button type="button" id="tn-test-btn" class="secondary">Probar conexión</button>
-      </form>
-      <p id="tn-test-result" class="muted"></p>
-    </section>
-
     <section id="settings-section" class="card">
       <h2>Ajustes por defecto</h2>
       <p class="muted">
@@ -89,8 +39,7 @@
     </section>
 
     <section id="add-product-section" class="card">
-      <h2>Agregar producto manual</h2>
-      <p class="muted">Para simular precios sin depender de Tienda Nube.</p>
+      <h2>Agregar producto</h2>
       <form id="add-product-form" class="add-product-grid">
         <label>
           Nombre
@@ -115,7 +64,6 @@
           <thead>
             <tr>
               <th>Producto</th>
-              <th>Precio actual</th>
               <th>Costo</th>
               <th>Envío</th>
               <th>Precio sugerido</th>

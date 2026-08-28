@@ -3,9 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import 'dotenv/config';
 
-import { calculateSuggestedPrice, calculateBreakdownForPrice } from '../shared/pricing.mjs';
+import { calculateSuggestedPrice } from '../shared/pricing.mjs';
 import * as store from './store.mjs';
-import * as tiendanube from './tiendanube.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -17,96 +16,17 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/shared', express.static(path.join(__dirname, '..', 'shared')));
 
-function effectiveInputs(settings, productData) {
-  const overrides = productData?.overrides || {};
+function effectiveInputs(settings, product) {
+  const overrides = product.overrides || {};
   return {
-    cost: productData?.cost ?? 0,
-    shipping: productData?.shipping ?? 0,
+    cost: product.cost,
+    shipping: product.shipping,
     paymentFeePct: overrides.paymentFeePct ?? settings.paymentFeePct,
     taxPct: overrides.taxPct ?? settings.taxPct,
     fixedCostPct: overrides.fixedCostPct ?? settings.fixedCostPct,
     marginPct: overrides.marginPct ?? settings.marginPct,
   };
 }
-
-app.get('/api/tiendanube/status', async (req, res) => {
-  res.json({ configured: await tiendanube.isConfigured() });
-});
-
-// Devuelve el Store ID y si hay un token guardado, pero NUNCA el token en sí.
-app.get('/api/tiendanube/config', async (req, res) => {
-  res.json(await tiendanube.getPublicConfig());
-});
-
-app.put('/api/tiendanube/config', async (req, res) => {
-  try {
-    const { storeId, accessToken, userAgent } = req.body || {};
-    await store.saveTiendaNubeConfig({ storeId, accessToken, userAgent });
-    res.json(await tiendanube.getPublicConfig());
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Datos de la app de Partner Portal (Client ID / Client Secret) para el
-// flujo OAuth, que funciona en cualquier plan de Tienda Nube.
-app.get('/api/tiendanube/oauth-config', async (req, res) => {
-  res.json(await tiendanube.getOAuthPublicConfig());
-});
-
-app.put('/api/tiendanube/oauth-config', async (req, res) => {
-  try {
-    const { clientId, clientSecret } = req.body || {};
-    await store.saveTiendaNubeConfig({ clientId, clientSecret });
-    res.json(await tiendanube.getOAuthPublicConfig());
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Arranca el flujo OAuth: manda al usuario a autorizar la instalación en
-// Tienda Nube. El redirect_uri de vuelta se configura UNA VEZ en el Partner
-// Portal (no se pasa acá) y debe apuntar a /oauth/callback en esta app.
-app.get('/oauth/start', async (req, res) => {
-  try {
-    const url = await tiendanube.buildAuthorizeUrl();
-    res.redirect(url);
-  } catch (err) {
-    res.redirect(`/?oauthError=${encodeURIComponent(err.message)}`);
-  }
-});
-
-// Vuelta del flujo OAuth: Tienda Nube redirige acá con ?code=... . Lo
-// canjeamos por un access_token real y guardamos storeId + accessToken.
-app.get('/oauth/callback', async (req, res) => {
-  const { code, error, error_description: errorDescription } = req.query;
-  if (error) {
-    return res.redirect(`/?oauthError=${encodeURIComponent(errorDescription || error)}`);
-  }
-  if (!code) {
-    return res.redirect(`/?oauthError=${encodeURIComponent('Tienda Nube no envió un código de autorización.')}`);
-  }
-  try {
-    const result = await tiendanube.completeOAuth(code);
-    res.redirect(`/?oauthSuccess=${encodeURIComponent(result.storeId)}`);
-  } catch (err) {
-    res.redirect(`/?oauthError=${encodeURIComponent(err.message)}`);
-  }
-});
-
-// Prueba las credenciales guardadas contra la API real de Tienda Nube (sin
-// modificar nada), para poder mostrar "conexión exitosa" o el error puntual.
-app.post('/api/tiendanube/test', async (req, res) => {
-  try {
-    if (!(await tiendanube.isConfigured())) {
-      return res.status(400).json({ ok: false, error: 'Falta el Store ID o el Access Token.' });
-    }
-    const result = await tiendanube.testConnection();
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    res.status(400).json({ ok: false, error: err.message });
-  }
-});
 
 app.get('/api/settings', async (req, res) => {
   res.json(await store.getSettings());
@@ -116,146 +36,57 @@ app.put('/api/settings', async (req, res) => {
   res.json(await store.saveSettings(req.body || {}));
 });
 
-// Devuelve la lista combinada de productos: si Tienda Nube está configurada,
-// trae los productos reales de la tienda; si no, sólo los productos manuales
-// cargados localmente. En ambos casos les suma costos guardados y el precio
-// sugerido calculado.
 app.get('/api/products', async (req, res) => {
   try {
     const settings = await store.getSettings();
-    const allProductData = await store.getAllProductData();
-    const configured = await tiendanube.isConfigured();
+    const all = await store.getAllProducts();
 
-    let items = [];
+    const products = Object.entries(all).map(([id, product]) => ({
+      id,
+      name: product.name,
+      cost: product.cost,
+      shipping: product.shipping,
+      overrides: product.overrides || {},
+      suggested: calculateSuggestedPrice(effectiveInputs(settings, product)),
+    }));
 
-    if (configured) {
-      const tnProducts = await tiendanube.listProducts();
-      items = tnProducts.map((p) => {
-        const variant = p.variants[0] || {};
-        return {
-          id: p.id,
-          variantId: variant.id ?? null,
-          name: p.name,
-          source: 'tiendanube',
-          currentPrice: variant.price ?? null,
-        };
-      });
-    }
-
-    // Sumamos los productos manuales (existen aunque haya tienda conectada,
-    // por si el usuario quiere simular algo sin publicarlo).
-    for (const [id, data] of Object.entries(allProductData)) {
-      if (data.manual) {
-        items.push({
-          id,
-          variantId: null,
-          name: data.manual.name,
-          source: 'manual',
-          currentPrice: data.manual.price ?? null,
-        });
-      }
-    }
-
-    const enriched = items.map((item) => {
-      const productData = allProductData[item.id] || null;
-      const inputs = effectiveInputs(settings, productData);
-      const suggested = calculateSuggestedPrice(inputs);
-      return {
-        ...item,
-        cost: inputs.cost,
-        shipping: inputs.shipping,
-        overrides: productData?.overrides || {},
-        suggested,
-      };
-    });
-
-    res.json({ configured, settings, products: enriched });
+    res.json({ settings, products });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Guarda costo/envío/overrides de un producto puntual (de Tienda Nube o manual).
-app.put('/api/products/:id/costs', async (req, res) => {
+app.post('/api/products', async (req, res) => {
   try {
-    const { cost, shipping, overrides } = req.body || {};
-    const saved = await store.saveProductData(req.params.id, {
-      cost: Number(cost) || 0,
-      shipping: Number(shipping) || 0,
-      overrides: overrides || {},
-    });
-    res.json(saved);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Devuelve el desglose de "qué pasaría con el precio actual" para comparar
-// contra el precio sugerido (útil para productos que ya están publicados).
-app.get('/api/products/:id/breakdown-at-current-price', async (req, res) => {
-  try {
-    const price = Number(req.query.price);
-    const settings = await store.getSettings();
-    const productData = await store.getProductData(req.params.id);
-    const inputs = effectiveInputs(settings, productData);
-    res.json(calculateBreakdownForPrice(price, inputs));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/products/manual', async (req, res) => {
-  try {
-    const { name, price, cost, shipping } = req.body || {};
-    const id = await store.createManualProduct({ name, price, cost, shipping });
+    const { name, cost, shipping } = req.body || {};
+    const id = await store.createProduct({ name, cost, shipping });
     res.json({ id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/products/manual/:id', async (req, res) => {
+app.put('/api/products/:id', async (req, res) => {
   try {
-    await store.deleteProductData(req.params.id);
+    const { name, cost, shipping, overrides } = req.body || {};
+    const updated = await store.updateProduct(req.params.id, { name, cost, shipping, overrides });
+    if (!updated) return res.status(404).json({ error: 'Producto no encontrado.' });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/products/:id', async (req, res) => {
+  try {
+    await store.deleteProduct(req.params.id);
     res.status(204).end();
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Calcula el precio sugerido y lo aplica directamente en Tienda Nube.
-app.post('/api/products/:id/apply-price', async (req, res) => {
-  try {
-    if (!(await tiendanube.isConfigured())) {
-      return res.status(400).json({ error: 'Tienda Nube no está configurada.' });
-    }
-    const { variantId } = req.body || {};
-    if (!variantId) {
-      return res.status(400).json({ error: 'Falta variantId.' });
-    }
-
-    const settings = await store.getSettings();
-    const productData = await store.getProductData(req.params.id);
-    const inputs = effectiveInputs(settings, productData);
-    const suggested = calculateSuggestedPrice(inputs);
-
-    if (!suggested.ok) {
-      return res.status(400).json({ error: suggested.error });
-    }
-
-    await tiendanube.updateVariantPrice(req.params.id, variantId, suggested.price);
-    res.json({ appliedPrice: suggested.price });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(`Costos- corriendo en http://localhost:${PORT}`);
-  console.log(
-    (await tiendanube.isConfigured())
-      ? 'Tienda Nube: conectada.'
-      : 'Tienda Nube: no configurada. Conectala desde la sección "Conectar tienda" en la app.',
-  );
 });

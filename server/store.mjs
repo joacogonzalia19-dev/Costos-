@@ -9,13 +9,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
-const TIENDANUBE_FILE = path.join(DATA_DIR, 'tiendanube.json');
 
 export const DEFAULT_SETTINGS = {
   currency: 'ARS',
   // Porcentajes por defecto (como fracción, no como número entero) que se
   // aplican a todo producto que no tenga su propio "override".
-  paymentFeePct: 0.06, // Comisión de medios de pago (Pago Nube / Mercado Pago).
+  paymentFeePct: 0.06, // Comisión de medios de pago.
   taxPct: 0, // IVA/IIBB/etc. Por defecto 0 (ej. monotributo). Ajustable.
   fixedCostPct: 0, // Prorrateo de costos fijos/publicidad.
   marginPct: 0.3, // Margen de ganancia deseado.
@@ -53,77 +52,52 @@ export async function saveSettings(partial) {
 }
 
 /**
- * "products.json" guarda dos cosas por id de producto:
- * - Costos/overrides para productos que vienen de Tienda Nube (por su id real).
- * - Productos "manuales" completos (cuando no hay tienda conectada, o para simular).
- *
- * Forma: { [productId]: { cost, shipping, overrides: {...pct}, manual?: {name, price} } }
+ * "products.json" guarda todos tus productos cargados a mano:
+ * { [id]: { name, cost, shipping, overrides: {...pct} } }
  */
-export async function getAllProductData() {
+export async function getAllProducts() {
   return readJson(PRODUCTS_FILE, {});
 }
 
-export async function getProductData(id) {
-  const all = await getAllProductData();
+export async function getProduct(id) {
+  const all = await getAllProducts();
   return all[id] || null;
 }
 
-export async function saveProductData(id, data) {
-  const all = await getAllProductData();
-  all[id] = { ...(all[id] || {}), ...data };
+function generateId() {
+  return `p-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function createProduct({ name, cost, shipping }) {
+  const all = await getAllProducts();
+  const id = generateId();
+  all[id] = {
+    name: name || 'Producto sin nombre',
+    cost: Number(cost) || 0,
+    shipping: Number(shipping) || 0,
+    overrides: {},
+  };
+  await writeJson(PRODUCTS_FILE, all);
+  return id;
+}
+
+export async function updateProduct(id, { name, cost, shipping, overrides }) {
+  const all = await getAllProducts();
+  const current = all[id];
+  if (!current) return null;
+  all[id] = {
+    ...current,
+    name: name ?? current.name,
+    cost: cost !== undefined ? Number(cost) || 0 : current.cost,
+    shipping: shipping !== undefined ? Number(shipping) || 0 : current.shipping,
+    overrides: overrides ?? current.overrides,
+  };
   await writeJson(PRODUCTS_FILE, all);
   return all[id];
 }
 
-export async function deleteProductData(id) {
-  const all = await getAllProductData();
+export async function deleteProduct(id) {
+  const all = await getAllProducts();
   delete all[id];
   await writeJson(PRODUCTS_FILE, all);
-}
-
-function generateManualId() {
-  return `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-export async function createManualProduct({ name, price, cost, shipping }) {
-  const id = generateManualId();
-  await saveProductData(id, {
-    cost: Number(cost) || 0,
-    shipping: Number(shipping) || 0,
-    overrides: {},
-    manual: { name: name || 'Producto sin nombre', price: Number(price) || 0 },
-  });
-  return id;
-}
-
-// Credenciales de Tienda Nube (Store ID + Access Token). Se guardan acá, en
-// data/tiendanube.json, en vez de requerir que edites el .env a mano y
-// reinicies el servidor cada vez. Ese archivo está en .gitignore: nunca se
-// commitea ni sale de tu máquina/servidor.
-// clientId/clientSecret son de una app creada en el Partner Portal
-// (partners.tiendanube.com) y sirven para el flujo OAuth ("Conectar con
-// Tienda Nube"), disponible en cualquier plan. storeId/accessToken son el
-// resultado final de ese flujo (o, alternativamente, se pueden cargar a
-// mano si tenés "Aplicaciones a medida", exclusivo de los planes
-// Escala/Evolución).
-const DEFAULT_TIENDANUBE_CONFIG = { storeId: '', accessToken: '', userAgent: '', clientId: '', clientSecret: '' };
-
-export async function getTiendaNubeConfig() {
-  const stored = await readJson(TIENDANUBE_FILE, null);
-  return { ...DEFAULT_TIENDANUBE_CONFIG, ...(stored || {}) };
-}
-
-export async function saveTiendaNubeConfig(partial) {
-  const current = await getTiendaNubeConfig();
-  // Los campos "secretos" (accessToken, clientSecret) sólo se pisan si viene
-  // un valor nuevo no vacío: así se puede actualizar el resto sin tener que
-  // volver a pegarlos cada vez.
-  const next = {
-    ...current,
-    ...partial,
-    accessToken: partial.accessToken ? partial.accessToken : current.accessToken,
-    clientSecret: partial.clientSecret ? partial.clientSecret : current.clientSecret,
-  };
-  await writeJson(TIENDANUBE_FILE, next);
-  return next;
 }
