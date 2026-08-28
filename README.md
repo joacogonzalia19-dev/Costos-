@@ -43,6 +43,11 @@ Abrí http://localhost:3000
 3. En la tabla de **"Productos"** vas a ver el precio de venta sugerido y
    cuánto queda de margen neto en pesos. Podés editar costo/nombre por
    producto y guardar, o eliminarlo.
+4. Si un producto puntual necesita otro % (por ejemplo, un proveedor con
+   comisión distinta o un margen más chico para vender más rápido), apretá
+   **"Ajustes propios"** en esa fila: podés pisar cualquiera de los 4
+   porcentajes sólo para ese producto (dejar vacío = usa el default). Un
+   ⚙ al lado del nombre indica que el producto tiene ajustes propios.
 
 Todo se guarda localmente en `data/` (ver "Estructura del proyecto" abajo);
 no sale de tu máquina.
@@ -55,9 +60,8 @@ no sale de tu máquina.
 - **Costos fijos / publicidad (%)**: para prorratear gastos fijos por venta.
 - **Margen deseado (%)**: cuánto querés ganar, sobre el precio final.
 
-Estos valores se aplican a todos los productos por defecto. La estructura de
-datos ya soporta overrides por producto (`data/products.json`); una próxima
-mejora natural es exponer esos overrides en la interfaz fila por fila.
+Estos valores se aplican a todos los productos por defecto, salvo que el
+producto tenga sus propios "Ajustes propios" (ver arriba).
 
 ## Estructura del proyecto
 
@@ -71,6 +75,5 @@ tests/               Tests del motor de cálculo (`npm test`)
 
 ## Roadmap sugerido
 
-- [ ] Overrides de porcentaje por producto en la interfaz (hoy sólo por API).
 - [ ] Simulación de "cuotas" (costo financiero de tarjeta a distintos plazos).
 - [ ] Exportar/importar productos (CSV) para cargar varios de una.

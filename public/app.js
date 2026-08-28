@@ -8,6 +8,17 @@ const state = {
   products: [],
 };
 
+// Ids de producto con el panel de "ajustes propios" (overrides) desplegado.
+// Es sólo estado de UI, no se persiste: se resetea al recargar la página.
+const expandedOverrides = new Set();
+
+const OVERRIDE_FIELDS = [
+  { key: 'paymentFeePct', label: 'Comisión de pago (%)' },
+  { key: 'taxPct', label: 'Impuestos (%)' },
+  { key: 'fixedCostPct', label: 'Costos fijos (%)' },
+  { key: 'marginPct', label: 'Margen deseado (%)' },
+];
+
 async function api(path, options) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -60,13 +71,22 @@ function renderProductsTable() {
   for (const product of state.products) {
     const tr = document.createElement('tr');
 
-    const suggested = calculateSuggestedPrice(effectiveInputsFor(product));
+    const effective = effectiveInputsFor(product);
+    const suggested = calculateSuggestedPrice(effective);
+    const hasOverrides = Object.keys(product.overrides || {}).length > 0;
 
     const nameTd = document.createElement('td');
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
     nameInput.value = product.name;
     nameTd.appendChild(nameInput);
+    if (hasOverrides) {
+      const marker = document.createElement('span');
+      marker.className = 'small-muted';
+      marker.title = 'Este producto tiene ajustes propios (distintos del default)';
+      marker.textContent = ' ⚙';
+      nameTd.appendChild(marker);
+    }
     tr.appendChild(nameTd);
 
     const costTd = document.createElement('td');
@@ -94,7 +114,7 @@ function renderProductsTable() {
 
     const marginTd = document.createElement('td');
     if (suggested.ok) {
-      marginTd.textContent = `${fmt.format(suggested.breakdown.marginAmount)} (${pctFmt(state.settings.marginPct)})`;
+      marginTd.textContent = `${fmt.format(suggested.breakdown.marginAmount)} (${pctFmt(effective.marginPct)})`;
       marginTd.className = 'margin-ok';
     } else {
       marginTd.textContent = '—';
@@ -104,6 +124,16 @@ function renderProductsTable() {
     const actionsTd = document.createElement('td');
     actionsTd.style.display = 'flex';
     actionsTd.style.gap = '0.4rem';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'secondary';
+    toggleBtn.textContent = expandedOverrides.has(product.id) ? 'Ocultar ajustes' : 'Ajustes propios';
+    toggleBtn.onclick = () => {
+      if (expandedOverrides.has(product.id)) expandedOverrides.delete(product.id);
+      else expandedOverrides.add(product.id);
+      renderProductsTable();
+    };
+    actionsTd.appendChild(toggleBtn);
 
     const saveBtn = document.createElement('button');
     saveBtn.className = 'secondary';
@@ -133,7 +163,68 @@ function renderProductsTable() {
 
     tr.appendChild(actionsTd);
     tbody.appendChild(tr);
+
+    if (expandedOverrides.has(product.id)) {
+      tbody.appendChild(renderOverrideRow(product));
+    }
   }
+}
+
+/**
+ * Fila expandible con los 4 porcentajes propios de un producto (comisión,
+ * impuestos, costos fijos, margen), que pisan el default global sólo para
+ * ese producto. Vacío = usa el default (se ve como placeholder).
+ */
+function renderOverrideRow(product) {
+  const overrideTr = document.createElement('tr');
+  overrideTr.className = 'override-row';
+
+  const td = document.createElement('td');
+  td.colSpan = 6;
+
+  const grid = document.createElement('div');
+  grid.className = 'settings-grid';
+
+  const inputs = {};
+  for (const field of OVERRIDE_FIELDS) {
+    const label = document.createElement('label');
+    label.textContent = field.label;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.step = '0.01';
+    const overrideValue = product.overrides?.[field.key];
+    input.value = overrideValue !== undefined ? (overrideValue * 100).toFixed(2) : '';
+    input.placeholder = `default ${(state.settings[field.key] * 100).toFixed(2)}%`;
+    label.appendChild(input);
+    grid.appendChild(label);
+    inputs[field.key] = input;
+  }
+
+  const saveOverridesBtn = document.createElement('button');
+  saveOverridesBtn.textContent = 'Guardar ajustes propios';
+  saveOverridesBtn.onclick = async () => {
+    const overrides = {};
+    for (const field of OVERRIDE_FIELDS) {
+      const raw = inputs[field.key].value.trim();
+      if (raw !== '') overrides[field.key] = fractionFromPercentInput(raw);
+    }
+    await api(`/api/products/${product.id}`, { method: 'PUT', body: JSON.stringify({ overrides }) });
+    await loadAll();
+  };
+  grid.appendChild(saveOverridesBtn);
+
+  const clearOverridesBtn = document.createElement('button');
+  clearOverridesBtn.className = 'secondary';
+  clearOverridesBtn.textContent = 'Quitar ajustes propios';
+  clearOverridesBtn.onclick = async () => {
+    await api(`/api/products/${product.id}`, { method: 'PUT', body: JSON.stringify({ overrides: {} }) });
+    await loadAll();
+  };
+  grid.appendChild(clearOverridesBtn);
+
+  td.appendChild(grid);
+  overrideTr.appendChild(td);
+  return overrideTr;
 }
 
 document.getElementById('settings-form').addEventListener('submit', async (e) => {

@@ -115,3 +115,9 @@ th { color: var(--muted); font-weight: 600; font-size: 0.8rem; }
 }
 
 .small-muted { font-size: 0.75rem; color: var(--muted); }
+
+.override-row td {
+  white-space: normal;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.override-row .settings-grid { padding: 0.25rem 0; }
