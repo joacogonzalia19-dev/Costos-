@@ -10,6 +10,9 @@ Pensada para **Ballon** (o cualquier tienda), con integración opcional a
 actualizar el precio de venta con un click. Sin conexión, funciona igual como
 calculadora manual.
 
+🔗 **App online:** https://calculadora-costos-delta.vercel.app (pide la
+contraseña configurada en `APP_PASSWORD`).
+
 ## ¿Por qué esta fórmula?
 
 La comisión de pago, los impuestos y el margen se calculan casi siempre sobre
