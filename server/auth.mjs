@@ -96,7 +96,15 @@ export function requireAuth(req, res, next) {
   if (PUBLIC_PATHS.has(req.path)) {
     return next();
   }
-  if (hasValidSession(req)) {
+  const valid = hasValidSession(req);
+  // TODO(debug): sacar este log una vez resuelto el problema de sesión en Vercel.
+  console.log('[auth-debug]', {
+    path: req.path,
+    hasCookieHeader: Boolean(req.headers.cookie),
+    cookieHeaderPreview: req.headers.cookie ? req.headers.cookie.slice(0, 60) : null,
+    valid,
+  });
+  if (valid) {
     return next();
   }
   if (req.path.startsWith('/api/')) {
