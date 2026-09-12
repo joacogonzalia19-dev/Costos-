@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Costos- · Ingresar</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main style="max-width: 420px; margin: 4rem auto; padding: 0 1.5rem;">
+    <section class="card">
+      <h2>Costos-</h2>
+      <p class="muted">Ingresá la contraseña para entrar.</p>
+      <form id="login-form" class="settings-grid">
+        <label>
+          Contraseña
+          <input type="password" id="password" required autofocus />
+        </label>
+        <button type="submit">Entrar</button>
+      </form>
+      <p id="login-error" class="muted"></p>
+    </section>
+  </main>
+
+  <script type="module">
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = document.getElementById('password').value;
+      const errorEl = document.getElementById('login-error');
+      errorEl.textContent = '';
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        if (res.ok) {
+          window.location.href = '/';
+        } else {
+          const body = await res.json().catch(() => ({}));
+          errorEl.textContent = body.error || 'Contraseña incorrecta.';
+        }
+      } catch (err) {
+        errorEl.textContent = `Error de conexión: ${err.message}`;
+      }
+    });
+  </script>
+</body>
+</html>

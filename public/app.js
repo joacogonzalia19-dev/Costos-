@@ -30,6 +30,10 @@ async function api(path, options) {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
+  if (res.status === 401) {
+    window.location.href = '/login.html';
+    return new Promise(() => {}); // corta la ejecución; ya estamos navegando afuera.
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Error ${res.status}`);
@@ -449,6 +453,11 @@ document.getElementById('add-product-form').addEventListener('submit', async (e)
   });
   e.target.reset();
   await loadAll();
+});
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  window.location.href = '/login.html';
 });
 
 renderOAuthFlash();

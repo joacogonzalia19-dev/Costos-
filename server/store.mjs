@@ -1,16 +1,24 @@
-// Persistencia simple en archivos JSON. No usamos una base de datos porque esta
-// app es para un uso personal/simple: un solo usuario, sin necesidad de concurrencia
-// real. Esto hace que instalar y correr la app sea trivial (sin infraestructura extra).
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+// Persistencia en Upstash Redis (base de datos online, plan gratis). Antes
+// esto guardaba en archivos JSON locales, pero eso sólo funciona en un
+// servidor de toda la vida: en Vercel (funciones serverless) no hay disco
+// persistente entre requests, así que necesitábamos una base de datos real.
+// Upstash se eligió porque:
+// - Tiene un cliente HTTP (no necesita mantener una conexión abierta), ideal
+//   para funciones serverless de vida corta.
+// - Se integra directo desde el marketplace de Vercel: al conectarlo, las
+//   variables UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN se cargan
+//   solas, sin copiar nada a mano.
+// - El modelo de datos de esta app son 4 "blobs" JSON (settings, productos,
+//   gastos, config de Tienda Nube) — encaja perfecto con un key-value store,
+//   sin necesidad de una base de datos relacional.
+import { Redis } from '@upstash/redis';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
-const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
-const TIENDANUBE_FILE = path.join(DATA_DIR, 'tiendanube.json');
-const EXPENSES_FILE = path.join(DATA_DIR, 'expenses.json');
+const redis = Redis.fromEnv();
+
+const SETTINGS_KEY = 'costos:settings';
+const PRODUCTS_KEY = 'costos:products';
+const TIENDANUBE_KEY = 'costos:tiendanube';
+const EXPENSES_KEY = 'costos:expenses';
 
 export const DEFAULT_SETTINGS = {
   currency: 'ARS',
@@ -24,46 +32,46 @@ export const DEFAULT_SETTINGS = {
   estimatedMonthlySales: 30,
 };
 
-async function ensureDataDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-}
-
-async function readJson(filePath, fallback) {
-  try {
-    const raw = await fs.readFile(filePath, 'utf-8');
-    return JSON.parse(raw);
-  } catch (err) {
-    if (err.code === 'ENOENT') return fallback;
-    throw err;
+async function readJson(key, fallback) {
+  const raw = await redis.get(key);
+  if (raw === null || raw === undefined) return fallback;
+  // El cliente de Upstash a veces devuelve el valor ya parseado y a veces el
+  // string tal cual, según la versión; contemplamos los dos casos.
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return fallback;
+    }
   }
+  return raw;
 }
 
-async function writeJson(filePath, data) {
-  await ensureDataDir();
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2) + '\n', 'utf-8');
+async function writeJson(key, data) {
+  await redis.set(key, JSON.stringify(data));
 }
 
 export async function getSettings() {
-  const stored = await readJson(SETTINGS_FILE, null);
+  const stored = await readJson(SETTINGS_KEY, null);
   return { ...DEFAULT_SETTINGS, ...(stored || {}) };
 }
 
 export async function saveSettings(partial) {
   const current = await getSettings();
   const next = { ...current, ...partial };
-  await writeJson(SETTINGS_FILE, next);
+  await writeJson(SETTINGS_KEY, next);
   return next;
 }
 
 /**
- * "products.json" guarda dos cosas por id de producto:
+ * La clave "costos:products" guarda dos cosas por id de producto:
  * - Costos/overrides para productos que vienen de Tienda Nube (por su id real).
  * - Productos "manuales" completos (cuando no hay tienda conectada, o para simular).
  *
  * Forma: { [productId]: { cost, shipping, overrides: {...pct}, manual?: {name, price} } }
  */
 export async function getAllProductData() {
-  return readJson(PRODUCTS_FILE, {});
+  return readJson(PRODUCTS_KEY, {});
 }
 
 export async function getProductData(id) {
@@ -74,14 +82,14 @@ export async function getProductData(id) {
 export async function saveProductData(id, data) {
   const all = await getAllProductData();
   all[id] = { ...(all[id] || {}), ...data };
-  await writeJson(PRODUCTS_FILE, all);
+  await writeJson(PRODUCTS_KEY, all);
   return all[id];
 }
 
 export async function deleteProductData(id) {
   const all = await getAllProductData();
   delete all[id];
-  await writeJson(PRODUCTS_FILE, all);
+  await writeJson(PRODUCTS_KEY, all);
 }
 
 function generateManualId() {
@@ -99,10 +107,9 @@ export async function createManualProduct({ name, price, cost, shipping }) {
   return id;
 }
 
-// Credenciales de Tienda Nube (Store ID + Access Token). Se guardan acá, en
-// data/tiendanube.json, en vez de requerir que edites el .env a mano y
-// reinicies el servidor cada vez. Ese archivo está en .gitignore: nunca se
-// commitea ni sale de tu máquina/servidor.
+// Credenciales de Tienda Nube (Store ID + Access Token). Se guardan en la
+// base de datos (clave "costos:tiendanube"), en vez de requerir que edites
+// el .env a mano y reinicies el servidor cada vez.
 // clientId/clientSecret son de una app creada en el Partner Portal
 // (partners.tiendanube.com) y sirven para el flujo OAuth ("Conectar con
 // Tienda Nube"), disponible en cualquier plan. storeId/accessToken son el
@@ -112,7 +119,7 @@ export async function createManualProduct({ name, price, cost, shipping }) {
 const DEFAULT_TIENDANUBE_CONFIG = { storeId: '', accessToken: '', userAgent: '', clientId: '', clientSecret: '' };
 
 export async function getTiendaNubeConfig() {
-  const stored = await readJson(TIENDANUBE_FILE, null);
+  const stored = await readJson(TIENDANUBE_KEY, null);
   return { ...DEFAULT_TIENDANUBE_CONFIG, ...(stored || {}) };
 }
 
@@ -127,13 +134,13 @@ export async function saveTiendaNubeConfig(partial) {
     accessToken: partial.accessToken ? partial.accessToken : current.accessToken,
     clientSecret: partial.clientSecret ? partial.clientSecret : current.clientSecret,
   };
-  await writeJson(TIENDANUBE_FILE, next);
+  await writeJson(TIENDANUBE_KEY, next);
   return next;
 }
 
 /**
  * Gastos del negocio (producción, packaging, publicidad, herramientas
- * digitales, etc.), guardados en data/expenses.json.
+ * digitales, etc.), guardados bajo la clave "costos:expenses".
  *
  * Forma: { [id]: { name, amount, type: 'fixed' | 'variable' } }
  * - "fixed": gasto mensual (alquiler, suscripciones, presupuesto de ads fijo).
@@ -143,7 +150,7 @@ export async function saveTiendaNubeConfig(partial) {
  *   (ej. una tarjetita que va en cada pedido), en pesos por unidad directo.
  */
 export async function getAllExpenses() {
-  return readJson(EXPENSES_FILE, {});
+  return readJson(EXPENSES_KEY, {});
 }
 
 function generateExpenseId() {
@@ -158,14 +165,14 @@ export async function createExpense({ name, amount, type }) {
     amount: Number(amount) || 0,
     type: type === 'variable' ? 'variable' : 'fixed',
   };
-  await writeJson(EXPENSES_FILE, all);
+  await writeJson(EXPENSES_KEY, all);
   return id;
 }
 
 export async function deleteExpense(id) {
   const all = await getAllExpenses();
   delete all[id];
-  await writeJson(EXPENSES_FILE, all);
+  await writeJson(EXPENSES_KEY, all);
 }
 
 /**

@@ -32,18 +32,74 @@ del negocio (herramientas, publicidad, etc.), no sólo el costo del producto.
 La lógica completa está en [`shared/pricing.mjs`](shared/pricing.mjs) y tiene
 tests en [`tests/pricing.test.mjs`](tests/pricing.test.mjs).
 
-## Instalación
+## Instalación (para correrla en tu máquina)
+
+La app necesita una base de datos (Upstash Redis, gratis) y una contraseña
+propia incluso para correrla en local — así el mismo código funciona igual
+acá que desplegado online. Ver **"Desplegar online (Vercel)"** más abajo
+para los pasos de crear la base de datos.
 
 ```bash
 npm install
 cp .env.example .env
+# completá UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN, APP_PASSWORD
+# y SESSION_SECRET en el .env recién creado
 npm start
 ```
 
-Abrí http://localhost:3000
+Abrí http://localhost:3000, ingresá la contraseña que pusiste en
+`APP_PASSWORD`, y ya estás adentro. Sin conectar Tienda Nube, la app queda en
+**modo manual**: podés cargar productos a mano para probar la calculadora.
 
-Sin conectar nada, la app arranca en **modo manual**: no toca ninguna tienda
-real, y podés cargar productos a mano para probar la calculadora.
+## Desplegar online (Vercel)
+
+Así queda en un link fijo, accesible desde cualquier lado sin depender de tu
+computadora. Vercel no tiene almacenamiento local persistente, por eso los
+datos se guardan en una base de datos (Upstash Redis) en vez de en archivos.
+
+### 1. Crear la base de datos (Upstash)
+
+La forma más simple es hacerlo directamente desde Vercel en el paso 3 (el
+marketplace de Vercel crea la base y carga las variables solo). Si preferís
+crearla antes por separado: entrá a
+[console.upstash.com](https://console.upstash.com), creá una cuenta gratis,
+**"Create Database"** (tipo Redis, plan gratis), y copiá de la pestaña
+**"REST API"** las dos variables `UPSTASH_REDIS_REST_URL` y
+`UPSTASH_REDIS_REST_TOKEN`.
+
+### 2. Subir el código a GitHub
+
+Si ya lo tenés en un repo de GitHub (como este), pasás directo al paso 3.
+
+### 3. Importar el proyecto en Vercel
+
+1. Entrá a [vercel.com](https://vercel.com) y creá una cuenta gratis
+   (podés entrar directo con tu cuenta de GitHub).
+2. **"Add New" → "Project"** → elegí el repo de Costos- → **"Import"**.
+3. Antes de desplegar, andá a la pestaña de integraciones/marketplace del
+   proyecto y agregá **Upstash** (o "KV"/"Redis" según cómo lo liste
+   Vercel) — esto crea la base gratis y carga `UPSTASH_REDIS_REST_URL` /
+   `UPSTASH_REDIS_REST_TOKEN` solo, sin que tengas que copiar nada. Si ya
+   creaste la base vos mismo en el paso 1, pegá esas dos variables a mano en
+   **"Environment Variables"**.
+4. En esa misma sección de variables de entorno, agregá también:
+   - `APP_PASSWORD`: la contraseña que vas a usar para entrar a la app.
+   - `SESSION_SECRET`: un texto largo y aleatorio (por ejemplo, generalo en
+     tu Mac con `openssl rand -hex 32` en la Terminal, y pegá el resultado).
+5. Apretá **"Deploy"**. En un par de minutos te da un link
+   (`https://tu-proyecto.vercel.app`) — ahí ya está la app online, pidiendo
+   la contraseña de `APP_PASSWORD` para entrar.
+
+### 4. Actualizaciones
+
+Cada vez que se suba un cambio nuevo a la rama conectada en GitHub, Vercel
+lo despliega solo — no hace falta hacer nada manual.
+
+### Si además conectás Tienda Nube vía OAuth
+
+El "Redirect URL" que configurás en el Partner Portal (ver más abajo) tiene
+que apuntar al dominio de Vercel, no a localhost:
+`https://tu-proyecto.vercel.app/oauth/callback`.
 
 ## Cómo se usa
 
@@ -125,22 +181,21 @@ Si tu plan sí incluye esta función, es más directo (sin Partner Portal):
 Con cualquiera de las dos, si todo salió bien arriba a la derecha va a decir
 "Tienda Nube conectada" y vas a ver tus productos reales.
 
-Las credenciales se guardan en `data/tiendanube.json`, un archivo local que
-está en `.gitignore` — nunca se commitea ni sale de tu servidor. La interfaz
-nunca vuelve a mostrar el Access Token ni el Client Secret una vez
-guardados (sólo indica si hay uno cargado); si querés cambiarlos, simplemente
-pegá uno nuevo.
+Las credenciales se guardan en la base de datos (Redis), nunca en el código
+ni en git. La interfaz nunca vuelve a mostrar el Access Token ni el Client
+Secret una vez guardados (sólo indica si hay uno cargado); si querés
+cambiarlos, simplemente pegá uno nuevo.
 
 Como alternativa (por ejemplo para un despliegue sin interfaz), también se
 pueden definir `TN_STORE_ID`, `TN_ACCESS_TOKEN`, `TN_USER_AGENT`,
-`TN_CLIENT_ID` y `TN_CLIENT_SECRET` en `.env` — se usan como respaldo si no
-hay nada guardado desde la app.
+`TN_CLIENT_ID` y `TN_CLIENT_SECRET` como variables de entorno — se usan como
+respaldo si no hay nada guardado desde la app.
 
 Importante: Tienda Nube no tiene un campo de "costo" ni "margen" por
-producto, así que esos datos se guardan localmente en `data/products.json`
-(no se suben a tu tienda). Lo único que la app escribe de vuelta en Tienda
-Nube es el **precio de venta**, y sólo cuando apretás "Aplicar en Tienda
-Nube" — nunca automáticamente.
+producto, así que esos datos se guardan en la base de datos propia de esta
+app (no se suben a tu tienda). Lo único que la app escribe de vuelta en
+Tienda Nube es el **precio de venta**, y sólo cuando apretás "Aplicar en
+Tienda Nube" — nunca automáticamente.
 
 ## Ajustes por defecto
 
@@ -177,14 +232,29 @@ producto al calcular el precio sugerido — no hace falta tocar nada más.
 
 ```
 shared/pricing.mjs   Motor de cálculo puro (compartido por backend y frontend)
-server/              Backend Express: rutas de API, cliente de Tienda Nube, persistencia
+server/app.mjs       La app de Express: rutas de API, login, cliente de Tienda Nube
+server/index.mjs     Arranque local (npm start) — importa app.mjs y hace app.listen()
+server/store.mjs     Persistencia en Upstash Redis
+server/auth.mjs      Login de una contraseña compartida (cookie firmada)
+api/index.mjs        Punto de entrada para Vercel — mismo app.mjs, sin app.listen()
+vercel.json          Manda todas las rutas a api/index.mjs
 public/              Frontend (HTML/CSS/JS sin build step)
-data/                Costos, productos manuales y credenciales guardadas localmente (no se versiona)
 tests/               Tests del motor de cálculo (`npm test`)
 ```
+
+## Seguridad
+
+La app pide una contraseña (`APP_PASSWORD`) para entrar, porque al estar en
+un link público cualquiera que lo tenga podría ver tus costos o cambiar
+precios reales en tu Tienda Nube si no hubiera nada que lo impida. Es un
+login simple (una sola contraseña compartida, sin usuarios individuales) —
+suficiente para uso personal, no pensado para dar accesos distintos a varias
+personas todavía.
 
 ## Roadmap sugerido
 
 - [ ] Historial de precios aplicados en Tienda Nube.
 - [ ] Simulación de "cuotas" (costo financiero de tarjeta a distintos plazos).
 - [ ] Alertas cuando el precio actual en Tienda Nube da margen negativo.
+- [ ] Usuarios individuales (hoy es una sola contraseña compartida) — paso
+      natural cuando se piense en que otros negocios usen la app.
