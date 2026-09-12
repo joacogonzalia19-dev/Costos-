@@ -84,27 +84,19 @@ export function checkPassword(candidate) {
 }
 
 /**
- * Middleware que exige sesión válida. Las rutas de login (la página y su API)
- * quedan afuera para no armar un loop de redirecciones.
+ * Middleware que exige sesión válida. En la práctica, para cuando esto se
+ * ejecuta ya pasaron por delante los estáticos (public/, shared/) y las
+ * rutas de login — así que sólo llega acá lo que de verdad hay que proteger
+ * (el resto de /api/*). Esta lista queda como red de seguridad extra por si
+ * el orden de middlewares cambia en el futuro.
  */
-// Únicas rutas alcanzables sin sesión: la página de login, su API, y el CSS
-// que esa página necesita para verse bien (si no, redirige a /login.html en
-// loop apenas el navegador intenta cargar el estilo).
 const PUBLIC_PATHS = new Set(['/login.html', '/api/login', '/styles.css']);
 
 export function requireAuth(req, res, next) {
   if (PUBLIC_PATHS.has(req.path)) {
     return next();
   }
-  const valid = hasValidSession(req);
-  // TODO(debug): sacar este log una vez resuelto el problema de sesión en Vercel.
-  console.log('[auth-debug]', {
-    path: req.path,
-    hasCookieHeader: Boolean(req.headers.cookie),
-    cookieHeaderPreview: req.headers.cookie ? req.headers.cookie.slice(0, 60) : null,
-    valid,
-  });
-  if (valid) {
+  if (hasValidSession(req)) {
     return next();
   }
   if (req.path.startsWith('/api/')) {

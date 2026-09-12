@@ -32,13 +32,18 @@ app.post('/api/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-app.use(requireAuth);
-
 // Sirve el frontend estático y el módulo de cálculo compartido (para que el
 // navegador pueda hacer `import ... from '/shared/pricing.mjs'` y usar
-// exactamente la misma lógica que el backend).
+// exactamente la misma lógica que el backend). Esto va ANTES del login a
+// propósito: ni el HTML/CSS/JS ni la fórmula de cálculo tienen datos tuyos
+// (todo lo real vive detrás de las rutas /api/*, que sí exigen sesión más
+// abajo), y dejarlos afuera del login evita un problema real de navegadores:
+// las peticiones que dispara un `import` de JS a veces no mandan la cookie
+// de sesión, aunque la carga de la página sí la mande — con esto no importa.
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/shared', express.static(path.join(__dirname, '..', 'shared')));
+
+app.use(requireAuth);
 
 function effectiveInputs(settings, productData, expenseSummary) {
   const overrides = productData?.overrides || {};
