@@ -13,15 +13,21 @@ calculadora manual.
 ## ¿Por qué esta fórmula?
 
 La comisión de pago, los impuestos y el margen se calculan casi siempre sobre
-el **precio final** que paga el cliente, no sobre tu costo. Por eso el precio
-sugerido se calcula despejando:
+el **precio final** que paga el cliente, no sobre tu costo. En cambio, los
+gastos del negocio (ver "Gastos del negocio" más abajo) son montos en pesos:
+un gasto fijo no "crece" porque subas el precio, así que se suman directo al
+costo, junto con el costo del producto y el envío. Por eso el precio sugerido
+se calcula despejando:
 
 ```
-precio = costo + envío + (comisión% + impuestos% + costosFijos% + margen%) × precio
+precio = costo + envío + gastosFijosPorUnidad + gastosVariablesPorUnidad
+         + (comisión% + impuestos% + margen%) × precio
 ```
 
 Esto evita el error común de aplicar el margen sobre el costo y terminar
-ganando menos de lo pensado una vez que se descuentan las comisiones.
+ganando menos de lo pensado una vez que se descuentan las comisiones, y
+también evita subestimar cuánto hay que cobrar para cubrir los gastos fijos
+del negocio (herramientas, publicidad, etc.), no sólo el costo del producto.
 
 La lógica completa está en [`shared/pricing.mjs`](shared/pricing.mjs) y tiene
 tests en [`tests/pricing.test.mjs`](tests/pricing.test.mjs).
@@ -41,19 +47,29 @@ real, y podés cargar productos a mano para probar la calculadora.
 
 ## Cómo se usa
 
-1. En **"Ajustes por defecto"** configurás los porcentajes que se aplican a
-   todos los productos: comisión de pago, impuestos, costos fijos/publicidad
-   y el margen de ganancia que querés.
-2. En **"Agregar producto manual"** cargás nombre, costo y envío/empaque de
+1. En **"Ajustes por defecto"** configurás la comisión de pago, los
+   impuestos, el margen de ganancia que querés, y cuántas **ventas estimás
+   por mes** (se usa para repartir los gastos fijos, ver el punto 2).
+2. En **"Gastos del negocio"** cargás todo lo que gastás en el negocio:
+   producción, packaging, publicidad, herramientas digitales (Canva,
+   WhatsApp Business API, etc.), alquiler, lo que sea. Cada gasto se marca
+   como **Fijo (mensual)** — se reparte entre las ventas estimadas del
+   punto 1 para saber cuánto le toca a cada unidad — o **Variable (por
+   unidad)** — un monto que se suma igual a todas las ventas (ej. una
+   tarjetita que va en cada pedido). La app muestra el total y cuánto
+   termina siendo por unidad, y ese monto se suma automáticamente al costo
+   de cada producto sin que tengas que hacer la cuenta a mano.
+3. En **"Agregar producto manual"** cargás nombre, costo y envío/empaque de
    productos que no vengan de Tienda Nube (o para simular antes de conectar).
-3. En la tabla de **"Productos"** vas a ver el precio de venta sugerido y
+4. En la tabla de **"Productos"** vas a ver el precio de venta sugerido y
    cuánto queda de margen neto en pesos. Podés editar costo/envío por
    producto y guardar, o eliminarlo (los manuales).
-4. Si un producto puntual necesita otro % (por ejemplo, un proveedor con
+5. Si un producto puntual necesita otro % (por ejemplo, un proveedor con
    comisión distinta o un margen más chico para vender más rápido), apretá
-   **"Ajustes propios"** en esa fila: podés pisar cualquiera de los 4
-   porcentajes sólo para ese producto (dejar vacío = usa el default). Un
-   ⚙ al lado del nombre indica que el producto tiene ajustes propios.
+   **"Ajustes propios"** en esa fila: podés pisar la comisión, los
+   impuestos o el margen sólo para ese producto (dejar vacío = usa el
+   default). Un ⚙ al lado del nombre indica que el producto tiene ajustes
+   propios.
 
 ## Conectar tu tienda de Tienda Nube (opcional)
 
@@ -130,12 +146,32 @@ Nube" — nunca automáticamente.
 
 - **Comisión de pago (%)**: lo que te cobra tu pasarela de pagos.
 - **Impuestos (%)**: IVA, Ingresos Brutos, etc. (0% si sos monotributista y
-  no discriminás IVA).
-- **Costos fijos / publicidad (%)**: para prorratear gastos fijos por venta.
+  no discriminás IVA, o si todavía no estás inscripto en ningún régimen).
 - **Margen deseado (%)**: cuánto querés ganar, sobre el precio final.
+- **Ventas estimadas por mes**: se usa sólo para repartir los gastos fijos
+  del negocio (ver "Gastos del negocio" abajo) entre esa cantidad de
+  unidades.
 
 Estos valores se aplican a todos los productos por defecto, salvo que el
 producto tenga sus propios "Ajustes propios" (ver "Cómo se usa" arriba).
+
+## Gastos del negocio
+
+Es habitual subestimar cuánto hay que cobrar por producto porque sólo se
+tiene en cuenta el costo de fabricarlo/comprarlo, sin sumar lo que cuesta
+sostener el negocio en general (herramientas, publicidad, etc.). Esta
+sección resuelve eso:
+
+- **Gastos fijos** (ej. suscripción a una herramienta, presupuesto mensual
+  de publicidad, alquiler): se cargan como monto mensual. La app los suma
+  todos y los divide por las "Ventas estimadas por mes" de Ajustes, para
+  saber cuánto de ese gasto le corresponde a cada unidad vendida.
+- **Gastos variables** (ej. un insumo que se usa en cada pedido sin importar
+  qué producto sea): se cargan como monto por unidad directo, y se suman
+  igual a todas las ventas.
+
+Ambos montos (ya prorrateados) se suman automáticamente al costo de cada
+producto al calcular el precio sugerido — no hace falta tocar nada más.
 
 ## Estructura del proyecto
 

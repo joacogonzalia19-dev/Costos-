@@ -17,16 +17,23 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/shared', express.static(path.join(__dirname, '..', 'shared')));
 
-function effectiveInputs(settings, productData) {
+function effectiveInputs(settings, productData, expenseSummary) {
   const overrides = productData?.overrides || {};
   return {
     cost: productData?.cost ?? 0,
     shipping: productData?.shipping ?? 0,
+    fixedCostPerUnit: expenseSummary.fixedCostPerUnit,
+    variableCostPerUnit: expenseSummary.totalVariablePerUnit,
     paymentFeePct: overrides.paymentFeePct ?? settings.paymentFeePct,
     taxPct: overrides.taxPct ?? settings.taxPct,
-    fixedCostPct: overrides.fixedCostPct ?? settings.fixedCostPct,
     marginPct: overrides.marginPct ?? settings.marginPct,
   };
+}
+
+async function getExpenseSummary() {
+  const settings = await store.getSettings();
+  const expenses = await store.getAllExpenses();
+  return store.summarizeExpenses(expenses, settings.estimatedMonthlySales);
 }
 
 app.get('/api/tiendanube/status', async (req, res) => {
@@ -116,6 +123,42 @@ app.put('/api/settings', async (req, res) => {
   res.json(await store.saveSettings(req.body || {}));
 });
 
+// Gastos del negocio (producción, packaging, publicidad, herramientas
+// digitales, etc.), fijos o variables. Se usan para calcular cuánto le toca
+// a cada unidad vendida (ver store.summarizeExpenses).
+app.get('/api/expenses', async (req, res) => {
+  try {
+    const settings = await store.getSettings();
+    const expenses = await store.getAllExpenses();
+    const summary = store.summarizeExpenses(expenses, settings.estimatedMonthlySales);
+    res.json({
+      expenses: Object.entries(expenses).map(([id, e]) => ({ id, ...e })),
+      summary,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/expenses', async (req, res) => {
+  try {
+    const { name, amount, type } = req.body || {};
+    const id = await store.createExpense({ name, amount, type });
+    res.json({ id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/expenses/:id', async (req, res) => {
+  try {
+    await store.deleteExpense(req.params.id);
+    res.status(204).end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Devuelve la lista combinada de productos: si Tienda Nube está configurada,
 // trae los productos reales de la tienda; si no, sólo los productos manuales
 // cargados localmente. En ambos casos les suma costos guardados y el precio
@@ -124,6 +167,7 @@ app.get('/api/products', async (req, res) => {
   try {
     const settings = await store.getSettings();
     const allProductData = await store.getAllProductData();
+    const expenseSummary = await getExpenseSummary();
     const configured = await tiendanube.isConfigured();
 
     let items = [];
@@ -158,7 +202,7 @@ app.get('/api/products', async (req, res) => {
 
     const enriched = items.map((item) => {
       const productData = allProductData[item.id] || null;
-      const inputs = effectiveInputs(settings, productData);
+      const inputs = effectiveInputs(settings, productData, expenseSummary);
       const suggested = calculateSuggestedPrice(inputs);
       return {
         ...item,
@@ -169,7 +213,7 @@ app.get('/api/products', async (req, res) => {
       };
     });
 
-    res.json({ configured, settings, products: enriched });
+    res.json({ configured, settings, expenseSummary, products: enriched });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -200,7 +244,8 @@ app.get('/api/products/:id/breakdown-at-current-price', async (req, res) => {
     const price = Number(req.query.price);
     const settings = await store.getSettings();
     const productData = await store.getProductData(req.params.id);
-    const inputs = effectiveInputs(settings, productData);
+    const expenseSummary = await getExpenseSummary();
+    const inputs = effectiveInputs(settings, productData, expenseSummary);
     res.json(calculateBreakdownForPrice(price, inputs));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -239,7 +284,8 @@ app.post('/api/products/:id/apply-price', async (req, res) => {
 
     const settings = await store.getSettings();
     const productData = await store.getProductData(req.params.id);
-    const inputs = effectiveInputs(settings, productData);
+    const expenseSummary = await getExpenseSummary();
+    const inputs = effectiveInputs(settings, productData, expenseSummary);
     const suggested = calculateSuggestedPrice(inputs);
 
     if (!suggested.ok) {

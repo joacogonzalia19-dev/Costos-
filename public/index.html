@@ -77,15 +77,60 @@
           <input type="number" step="0.01" min="0" id="taxPct" />
         </label>
         <label>
-          Costos fijos / publicidad (%)
-          <input type="number" step="0.01" min="0" id="fixedCostPct" />
-        </label>
-        <label>
           Margen deseado (%)
           <input type="number" step="0.01" min="0" id="marginPct" />
         </label>
+        <label>
+          Ventas estimadas por mes
+          <input type="number" step="1" min="0" id="estimatedMonthlySales" />
+        </label>
         <button type="submit">Guardar ajustes</button>
       </form>
+    </section>
+
+    <section id="expenses-section" class="card">
+      <h2>Gastos del negocio</h2>
+      <p class="muted">
+        Cargá acá todo lo que gastás en el negocio (producción, packaging,
+        publicidad, herramientas digitales, alquiler, etc.), marcando si es
+        fijo (mensual, no depende de cuánto vendas) o variable (por unidad,
+        aplica a todas las ventas por igual). La calculadora reparte los
+        fijos entre las "Ventas estimadas por mes" de arriba, y suma los
+        variables directo, para que cada producto ya los tenga en cuenta.
+      </p>
+      <form id="add-expense-form" class="add-product-grid">
+        <label>
+          Nombre
+          <input type="text" id="new-expense-name" placeholder="Ej: Canva Pro, publicidad Instagram" required />
+        </label>
+        <label>
+          Monto
+          <input type="number" step="0.01" min="0" id="new-expense-amount" required />
+        </label>
+        <label>
+          Tipo
+          <select id="new-expense-type">
+            <option value="fixed">Fijo (mensual)</option>
+            <option value="variable">Variable (por unidad)</option>
+          </select>
+        </label>
+        <button type="submit">Agregar gasto</button>
+      </form>
+
+      <div id="expenses-table-wrapper">
+        <table id="expenses-table">
+          <thead>
+            <tr>
+              <th>Gasto</th>
+              <th>Tipo</th>
+              <th>Monto</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="expenses-tbody"></tbody>
+        </table>
+      </div>
+      <p id="expenses-summary" class="muted"></p>
     </section>
 
     <section id="add-product-section" class="card">

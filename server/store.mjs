@@ -10,6 +10,7 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
 const TIENDANUBE_FILE = path.join(DATA_DIR, 'tiendanube.json');
+const EXPENSES_FILE = path.join(DATA_DIR, 'expenses.json');
 
 export const DEFAULT_SETTINGS = {
   currency: 'ARS',
@@ -17,8 +18,10 @@ export const DEFAULT_SETTINGS = {
   // aplican a todo producto que no tenga su propio "override".
   paymentFeePct: 0.06, // Comisión de medios de pago (Pago Nube / Mercado Pago).
   taxPct: 0, // IVA/IIBB/etc. Por defecto 0 (ej. monotributo). Ajustable.
-  fixedCostPct: 0, // Prorrateo de costos fijos/publicidad.
   marginPct: 0.3, // Margen de ganancia deseado.
+  // Cuántas ventas estimás hacer por mes: se usa para repartir los gastos
+  // fijos (ver "Gastos del negocio") entre esa cantidad de unidades.
+  estimatedMonthlySales: 30,
 };
 
 async function ensureDataDir() {
@@ -126,4 +129,57 @@ export async function saveTiendaNubeConfig(partial) {
   };
   await writeJson(TIENDANUBE_FILE, next);
   return next;
+}
+
+/**
+ * Gastos del negocio (producción, packaging, publicidad, herramientas
+ * digitales, etc.), guardados en data/expenses.json.
+ *
+ * Forma: { [id]: { name, amount, type: 'fixed' | 'variable' } }
+ * - "fixed": gasto mensual (alquiler, suscripciones, presupuesto de ads fijo).
+ *   Se reparte entre las ventas estimadas del mes para saber cuánto le toca
+ *   a cada unidad vendida.
+ * - "variable": gasto por unidad que aplica a todas las ventas por igual
+ *   (ej. una tarjetita que va en cada pedido), en pesos por unidad directo.
+ */
+export async function getAllExpenses() {
+  return readJson(EXPENSES_FILE, {});
+}
+
+function generateExpenseId() {
+  return `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function createExpense({ name, amount, type }) {
+  const all = await getAllExpenses();
+  const id = generateExpenseId();
+  all[id] = {
+    name: name || 'Gasto sin nombre',
+    amount: Number(amount) || 0,
+    type: type === 'variable' ? 'variable' : 'fixed',
+  };
+  await writeJson(EXPENSES_FILE, all);
+  return id;
+}
+
+export async function deleteExpense(id) {
+  const all = await getAllExpenses();
+  delete all[id];
+  await writeJson(EXPENSES_FILE, all);
+}
+
+/**
+ * Calcula, a partir de la lista de gastos y las ventas estimadas por mes,
+ * cuánto le corresponde a CADA unidad vendida de gastos fijos y de gastos
+ * variables generales. Se usa para sumarlo al costo base de cada producto.
+ */
+export function summarizeExpenses(expenses, estimatedMonthlySales) {
+  const items = Object.values(expenses || {});
+  const totalFixedMonthly = items.filter((e) => e.type === 'fixed').reduce((sum, e) => sum + (e.amount || 0), 0);
+  const totalVariablePerUnit = items
+    .filter((e) => e.type === 'variable')
+    .reduce((sum, e) => sum + (e.amount || 0), 0);
+  const sales = Number(estimatedMonthlySales) || 0;
+  const fixedCostPerUnit = sales > 0 ? totalFixedMonthly / sales : 0;
+  return { totalFixedMonthly, totalVariablePerUnit, fixedCostPerUnit };
 }

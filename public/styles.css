@@ -110,7 +110,7 @@ button.secondary {
   font-weight: 500;
 }
 
-#products-table-wrapper { overflow-x: auto; }
+#products-table-wrapper, #expenses-table-wrapper { overflow-x: auto; }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); white-space: nowrap; }

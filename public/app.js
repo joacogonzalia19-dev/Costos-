@@ -9,6 +9,8 @@ const state = {
   configured: false,
   tiendanubeConfig: null,
   oauthConfig: null,
+  expenses: [],
+  expenseSummary: { totalFixedMonthly: 0, totalVariablePerUnit: 0, fixedCostPerUnit: 0 },
 };
 
 // Ids de producto con el panel de "ajustes propios" (overrides) desplegado.
@@ -18,9 +20,10 @@ const expandedOverrides = new Set();
 const OVERRIDE_FIELDS = [
   { key: 'paymentFeePct', label: 'Comisión de pago (%)' },
   { key: 'taxPct', label: 'Impuestos (%)' },
-  { key: 'fixedCostPct', label: 'Costos fijos (%)' },
   { key: 'marginPct', label: 'Margen deseado (%)' },
 ];
+
+const EXPENSE_TYPE_LABELS = { fixed: 'Fijo (mensual)', variable: 'Variable (por unidad)' };
 
 async function api(path, options) {
   const res = await fetch(path, {
@@ -41,22 +44,26 @@ function fractionFromPercentInput(value) {
 }
 
 async function loadAll() {
-  const [settings, statusResp, productsResp, tnConfig, oauthConfig] = await Promise.all([
+  const [settings, statusResp, productsResp, tnConfig, oauthConfig, expensesResp] = await Promise.all([
     api('/api/settings'),
     api('/api/tiendanube/status'),
     api('/api/products'),
     api('/api/tiendanube/config'),
     api('/api/tiendanube/oauth-config'),
+    api('/api/expenses'),
   ]);
   state.settings = settings;
   state.configured = statusResp.configured;
   state.products = productsResp.products;
   state.tiendanubeConfig = tnConfig;
   state.oauthConfig = oauthConfig;
+  state.expenses = expensesResp.expenses;
+  state.expenseSummary = expensesResp.summary;
   renderStatus();
   renderSettingsForm();
   renderTiendaNubeForm();
   renderOAuthForm();
+  renderExpensesTable();
   renderProductsTable();
 }
 
@@ -108,8 +115,49 @@ function renderTiendaNubeForm() {
 function renderSettingsForm() {
   document.getElementById('paymentFeePct').value = (state.settings.paymentFeePct * 100).toFixed(2);
   document.getElementById('taxPct').value = (state.settings.taxPct * 100).toFixed(2);
-  document.getElementById('fixedCostPct').value = (state.settings.fixedCostPct * 100).toFixed(2);
   document.getElementById('marginPct').value = (state.settings.marginPct * 100).toFixed(2);
+  document.getElementById('estimatedMonthlySales').value = state.settings.estimatedMonthlySales;
+}
+
+function renderExpensesTable() {
+  const tbody = document.getElementById('expenses-tbody');
+  tbody.innerHTML = '';
+
+  for (const expense of state.expenses) {
+    const tr = document.createElement('tr');
+
+    const nameTd = document.createElement('td');
+    nameTd.textContent = expense.name;
+    tr.appendChild(nameTd);
+
+    const typeTd = document.createElement('td');
+    typeTd.textContent = EXPENSE_TYPE_LABELS[expense.type] || expense.type;
+    tr.appendChild(typeTd);
+
+    const amountTd = document.createElement('td');
+    amountTd.textContent = fmt.format(expense.amount) + (expense.type === 'fixed' ? '/mes' : '/unidad');
+    tr.appendChild(amountTd);
+
+    const actionsTd = document.createElement('td');
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'secondary';
+    deleteBtn.textContent = 'Eliminar';
+    deleteBtn.onclick = async () => {
+      if (!confirm(`¿Eliminar el gasto "${expense.name}"?`)) return;
+      await api(`/api/expenses/${expense.id}`, { method: 'DELETE' });
+      await loadAll();
+    };
+    actionsTd.appendChild(deleteBtn);
+    tr.appendChild(actionsTd);
+
+    tbody.appendChild(tr);
+  }
+
+  const s = state.expenseSummary;
+  document.getElementById('expenses-summary').textContent =
+    `Total gastos fijos: ${fmt.format(s.totalFixedMonthly)}/mes → ${fmt.format(s.fixedCostPerUnit)} por unidad ` +
+    `(con ${state.settings.estimatedMonthlySales} ventas estimadas/mes). ` +
+    `Total gastos variables: ${fmt.format(s.totalVariablePerUnit)} por unidad.`;
 }
 
 function effectiveInputsFor(product) {
@@ -117,9 +165,10 @@ function effectiveInputsFor(product) {
   return {
     cost: product.cost,
     shipping: product.shipping,
+    fixedCostPerUnit: state.expenseSummary.fixedCostPerUnit,
+    variableCostPerUnit: state.expenseSummary.totalVariablePerUnit,
     paymentFeePct: overrides.paymentFeePct ?? state.settings.paymentFeePct,
     taxPct: overrides.taxPct ?? state.settings.taxPct,
-    fixedCostPct: overrides.fixedCostPct ?? state.settings.fixedCostPct,
     marginPct: overrides.marginPct ?? state.settings.marginPct,
   };
 }
@@ -137,8 +186,9 @@ function renderProductsTable() {
     const suggested = calculateSuggestedPrice(effective);
     const hasOverrides = Object.keys(product.overrides || {}).length > 0;
 
+    const gastosPorUnidad = effective.fixedCostPerUnit + effective.variableCostPerUnit;
     const nameTd = document.createElement('td');
-    nameTd.innerHTML = `${product.name}<br><span class="small-muted">${product.source === 'tiendanube' ? 'Tienda Nube' : 'Manual'}</span>`;
+    nameTd.innerHTML = `${product.name}<br><span class="small-muted">${product.source === 'tiendanube' ? 'Tienda Nube' : 'Manual'}${gastosPorUnidad > 0 ? ` · +${fmt.format(gastosPorUnidad)} gastos` : ''}</span>`;
     if (hasOverrides) {
       const marker = document.createElement('span');
       marker.className = 'small-muted';
@@ -316,10 +366,23 @@ document.getElementById('settings-form').addEventListener('submit', async (e) =>
     body: JSON.stringify({
       paymentFeePct: fractionFromPercentInput(document.getElementById('paymentFeePct').value),
       taxPct: fractionFromPercentInput(document.getElementById('taxPct').value),
-      fixedCostPct: fractionFromPercentInput(document.getElementById('fixedCostPct').value),
       marginPct: fractionFromPercentInput(document.getElementById('marginPct').value),
+      estimatedMonthlySales: Number(document.getElementById('estimatedMonthlySales').value) || 0,
     }),
   });
+  await loadAll();
+});
+
+document.getElementById('add-expense-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('new-expense-name').value;
+  const amount = document.getElementById('new-expense-amount').value;
+  const type = document.getElementById('new-expense-type').value;
+  await api('/api/expenses', {
+    method: 'POST',
+    body: JSON.stringify({ name, amount, type }),
+  });
+  e.target.reset();
   await loadAll();
 });
 
