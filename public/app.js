@@ -243,7 +243,10 @@ function effectiveInputsFor(product) {
     cost: product.cost,
     shipping: product.shipping,
     fixedCostPerUnit: state.expenseSummary.fixedCostPerUnit,
-    variableCostPerUnit: state.expenseSummary.totalVariablePerUnit,
+    // El envío del pedido activo se suma como costo variable más, igual que
+    // los gastos variables (no viene incluido en expenseSummary porque ese
+    // viene de /api/expenses, que no sabe nada de pedidos).
+    variableCostPerUnit: state.expenseSummary.totalVariablePerUnit + state.supplierShippingPerUnit,
     paymentFeePct: overrides.paymentFeePct ?? state.settings.paymentFeePct,
     taxPct: overrides.taxPct ?? state.settings.taxPct,
     marginPct: overrides.marginPct ?? state.settings.marginPct,
