@@ -11,6 +11,8 @@ const state = {
   oauthConfig: null,
   expenses: [],
   expenseSummary: { totalFixedMonthly: 0, totalVariablePerUnit: 0, fixedCostPerUnit: 0 },
+  orders: [],
+  supplierShippingPerUnit: 0,
 };
 
 // Ids de producto con el panel de "ajustes propios" (overrides) desplegado.
@@ -48,13 +50,14 @@ function fractionFromPercentInput(value) {
 }
 
 async function loadAll() {
-  const [settings, statusResp, productsResp, tnConfig, oauthConfig, expensesResp] = await Promise.all([
+  const [settings, statusResp, productsResp, tnConfig, oauthConfig, expensesResp, ordersResp] = await Promise.all([
     api('/api/settings'),
     api('/api/tiendanube/status'),
     api('/api/products'),
     api('/api/tiendanube/config'),
     api('/api/tiendanube/oauth-config'),
     api('/api/expenses'),
+    api('/api/orders'),
   ]);
   state.settings = settings;
   state.configured = statusResp.configured;
@@ -63,11 +66,14 @@ async function loadAll() {
   state.oauthConfig = oauthConfig;
   state.expenses = expensesResp.expenses;
   state.expenseSummary = expensesResp.summary;
+  state.orders = ordersResp.orders;
+  state.supplierShippingPerUnit = ordersResp.supplierShippingPerUnit;
   renderStatus();
   renderSettingsForm();
   renderTiendaNubeForm();
   renderOAuthForm();
   renderExpensesTable();
+  renderOrdersTable();
   renderProductsTable();
 }
 
@@ -162,6 +168,73 @@ function renderExpensesTable() {
     `Total gastos fijos: ${fmt.format(s.totalFixedMonthly)}/mes → ${fmt.format(s.fixedCostPerUnit)} por unidad ` +
     `(con ${state.settings.estimatedMonthlySales} ventas estimadas/mes). ` +
     `Total gastos variables: ${fmt.format(s.totalVariablePerUnit)} por unidad.`;
+}
+
+function renderOrdersTable() {
+  const tbody = document.getElementById('orders-tbody');
+  tbody.innerHTML = '';
+
+  for (const order of state.orders) {
+    const tr = document.createElement('tr');
+    if (order.active) tr.className = 'override-row';
+
+    const nameTd = document.createElement('td');
+    nameTd.textContent = order.name;
+    tr.appendChild(nameTd);
+
+    const dateTd = document.createElement('td');
+    dateTd.textContent = order.date || '—';
+    tr.appendChild(dateTd);
+
+    const shippingTd = document.createElement('td');
+    shippingTd.textContent = fmt.format(order.shippingCost);
+    tr.appendChild(shippingTd);
+
+    const unitsTd = document.createElement('td');
+    unitsTd.textContent = order.totalUnits;
+    tr.appendChild(unitsTd);
+
+    const perUnitTd = document.createElement('td');
+    perUnitTd.textContent = order.totalUnits ? fmt.format(order.shippingCost / order.totalUnits) : '—';
+    tr.appendChild(perUnitTd);
+
+    const activeTd = document.createElement('td');
+    if (order.active) {
+      const badge = document.createElement('span');
+      badge.className = 'badge connected';
+      badge.textContent = 'Activo';
+      activeTd.appendChild(badge);
+    } else {
+      const activateBtn = document.createElement('button');
+      activateBtn.className = 'secondary';
+      activateBtn.textContent = 'Marcar activo';
+      activateBtn.onclick = async () => {
+        await api(`/api/orders/${order.id}/activate`, { method: 'POST' });
+        await loadAll();
+      };
+      activeTd.appendChild(activateBtn);
+    }
+    tr.appendChild(activeTd);
+
+    const actionsTd = document.createElement('td');
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'secondary';
+    deleteBtn.textContent = 'Eliminar';
+    deleteBtn.onclick = async () => {
+      if (!confirm(`¿Eliminar el pedido "${order.name}"?`)) return;
+      await api(`/api/orders/${order.id}`, { method: 'DELETE' });
+      await loadAll();
+    };
+    actionsTd.appendChild(deleteBtn);
+    tr.appendChild(actionsTd);
+
+    tbody.appendChild(tr);
+  }
+
+  const activeOrder = state.orders.find((o) => o.active);
+  document.getElementById('orders-summary').textContent = activeOrder
+    ? `Envío proveedor por unidad (pedido activo: "${activeOrder.name}"): ${fmt.format(state.supplierShippingPerUnit)}.`
+    : 'No hay ningún pedido activo: no se suma envío de proveedor a los productos.';
 }
 
 function effectiveInputsFor(product) {
@@ -385,6 +458,20 @@ document.getElementById('add-expense-form').addEventListener('submit', async (e)
   await api('/api/expenses', {
     method: 'POST',
     body: JSON.stringify({ name, amount, type }),
+  });
+  e.target.reset();
+  await loadAll();
+});
+
+document.getElementById('add-order-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('new-order-name').value;
+  const date = document.getElementById('new-order-date').value;
+  const shippingCost = document.getElementById('new-order-shipping').value;
+  const totalUnits = document.getElementById('new-order-units').value;
+  await api('/api/orders', {
+    method: 'POST',
+    body: JSON.stringify({ name, date, shippingCost, totalUnits }),
   });
   e.target.reset();
   await loadAll();

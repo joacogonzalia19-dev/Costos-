@@ -140,6 +140,55 @@
       <p id="expenses-summary" class="muted"></p>
     </section>
 
+    <section id="orders-section" class="card">
+      <h2>Pedidos al proveedor</h2>
+      <p class="muted">
+        El envío de un pedido de mercadería no es mensual como los gastos
+        fijos — llega cada vez que pedís, y no siempre sabés cada cuánto va
+        a ser. Por eso cada pedido reparte su envío entre SUS propias
+        unidades. Sólo el pedido marcado como <strong>activo</strong> se
+        suma al costo de los productos; al cargar uno nuevo, pasa a ser el
+        activo automáticamente.
+      </p>
+      <form id="add-order-form" class="add-product-grid">
+        <label>
+          Nombre o descripción
+          <input type="text" id="new-order-name" placeholder="Ej: Pedido octubre" required />
+        </label>
+        <label>
+          Fecha
+          <input type="date" id="new-order-date" />
+        </label>
+        <label>
+          Costo del envío
+          <input type="number" step="0.01" min="0" id="new-order-shipping" required />
+        </label>
+        <label>
+          Cantidad total de unidades
+          <input type="number" step="1" min="1" id="new-order-units" required />
+        </label>
+        <button type="submit">Agregar pedido</button>
+      </form>
+
+      <div id="orders-table-wrapper">
+        <table id="orders-table">
+          <thead>
+            <tr>
+              <th>Pedido</th>
+              <th>Fecha</th>
+              <th>Envío</th>
+              <th>Unidades</th>
+              <th>Envío/unidad</th>
+              <th>Activo</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="orders-tbody"></tbody>
+        </table>
+      </div>
+      <p id="orders-summary" class="muted"></p>
+    </section>
+
     <section id="add-product-section" class="card">
       <h2>Agregar producto manual</h2>
       <p class="muted">Para simular precios sin depender de Tienda Nube.</p>

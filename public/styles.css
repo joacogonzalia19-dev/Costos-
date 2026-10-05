@@ -171,7 +171,7 @@ code {
   font-size: 0.85em;
 }
 
-#products-table-wrapper, #expenses-table-wrapper { overflow-x: auto; }
+#products-table-wrapper, #expenses-table-wrapper, #orders-table-wrapper { overflow-x: auto; }
 
 table {
   width: 100%;

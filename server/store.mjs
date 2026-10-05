@@ -19,6 +19,7 @@ const SETTINGS_KEY = 'costos:settings';
 const PRODUCTS_KEY = 'costos:products';
 const TIENDANUBE_KEY = 'costos:tiendanube';
 const EXPENSES_KEY = 'costos:expenses';
+const ORDERS_KEY = 'costos:orders';
 
 export const DEFAULT_SETTINGS = {
   currency: 'ARS',
@@ -189,4 +190,69 @@ export function summarizeExpenses(expenses, estimatedMonthlySales) {
   const sales = Number(estimatedMonthlySales) || 0;
   const fixedCostPerUnit = sales > 0 ? totalFixedMonthly / sales : 0;
   return { totalFixedMonthly, totalVariablePerUnit, fixedCostPerUnit };
+}
+
+/**
+ * Pedidos al proveedor, guardados bajo la clave "costos:orders".
+ *
+ * A diferencia de los gastos fijos/variables (que son recurrentes y
+ * previsibles), el envío de un pedido de mercadería es irregular: no sabés
+ * cada cuánto vas a volver a pedir. Por eso no se prorratea contra ventas
+ * estimadas como los gastos fijos — en cambio, cada pedido ya trae su propia
+ * cantidad de unidades, y el envío se reparte directo entre esas unidades
+ * (envío ÷ unidades = cuánto le toca a cada una).
+ *
+ * Sólo UN pedido puede estar "activo" a la vez — es el que efectivamente se
+ * suma al costo de los productos (como si fuera un gasto variable más). Los
+ * demás quedan guardados como historial, pero no afectan el cálculo.
+ *
+ * Forma: { [id]: { name, date, shippingCost, totalUnits, active } }
+ */
+export async function getAllOrders() {
+  return readJson(ORDERS_KEY, {});
+}
+
+function generateOrderId() {
+  return `order-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function createOrder({ name, date, shippingCost, totalUnits }) {
+  const all = await getAllOrders();
+  // El pedido nuevo pasa a ser el activo; se desactivan todos los demás.
+  for (const order of Object.values(all)) {
+    order.active = false;
+  }
+  const id = generateOrderId();
+  all[id] = {
+    name: name || 'Pedido sin nombre',
+    date: date || '',
+    shippingCost: Number(shippingCost) || 0,
+    totalUnits: Number(totalUnits) || 0,
+    active: true,
+  };
+  await writeJson(ORDERS_KEY, all);
+  return id;
+}
+
+export async function setActiveOrder(id) {
+  const all = await getAllOrders();
+  if (!all[id]) return null;
+  for (const [orderId, order] of Object.entries(all)) {
+    order.active = orderId === id;
+  }
+  await writeJson(ORDERS_KEY, all);
+  return all[id];
+}
+
+export async function deleteOrder(id) {
+  const all = await getAllOrders();
+  delete all[id];
+  await writeJson(ORDERS_KEY, all);
+}
+
+/** Envío por unidad del pedido activo (0 si no hay ninguno marcado como activo). */
+export function activeOrderShippingPerUnit(orders) {
+  const active = Object.values(orders || {}).find((o) => o.active);
+  if (!active || !active.totalUnits) return 0;
+  return active.shippingCost / active.totalUnits;
 }

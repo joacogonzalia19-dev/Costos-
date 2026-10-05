@@ -61,7 +61,17 @@ function effectiveInputs(settings, productData, expenseSummary) {
 async function getExpenseSummary() {
   const settings = await store.getSettings();
   const expenses = await store.getAllExpenses();
-  return store.summarizeExpenses(expenses, settings.estimatedMonthlySales);
+  const orders = await store.getAllOrders();
+  const base = store.summarizeExpenses(expenses, settings.estimatedMonthlySales);
+  const supplierShippingPerUnit = store.activeOrderShippingPerUnit(orders);
+  // El envío del pedido activo se suma al mismo "pozo" que los gastos
+  // variables generales: es un monto por unidad que se suma igual a todos
+  // los productos, exactamente como cualquier otro gasto variable.
+  return {
+    ...base,
+    supplierShippingPerUnit,
+    totalVariablePerUnit: base.totalVariablePerUnit + supplierShippingPerUnit,
+  };
 }
 
 app.get('/api/tiendanube/status', async (req, res) => {
@@ -181,6 +191,51 @@ app.post('/api/expenses', async (req, res) => {
 app.delete('/api/expenses/:id', async (req, res) => {
   try {
     await store.deleteExpense(req.params.id);
+    res.status(204).end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Pedidos al proveedor: a diferencia de los gastos, el envío de un pedido de
+// mercadería no es mensual ni previsible, así que no se prorratea contra
+// ventas estimadas — se reparte directo entre las unidades de ESE pedido.
+// Sólo el pedido marcado como "activo" afecta el costo de los productos.
+app.get('/api/orders', async (req, res) => {
+  try {
+    const orders = await store.getAllOrders();
+    res.json({
+      orders: Object.entries(orders).map(([id, o]) => ({ id, ...o })),
+      supplierShippingPerUnit: store.activeOrderShippingPerUnit(orders),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/orders', async (req, res) => {
+  try {
+    const { name, date, shippingCost, totalUnits } = req.body || {};
+    const id = await store.createOrder({ name, date, shippingCost, totalUnits });
+    res.json({ id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/orders/:id/activate', async (req, res) => {
+  try {
+    const updated = await store.setActiveOrder(req.params.id);
+    if (!updated) return res.status(404).json({ error: 'Pedido no encontrado.' });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/orders/:id', async (req, res) => {
+  try {
+    await store.deleteOrder(req.params.id);
     res.status(204).end();
   } catch (err) {
     res.status(500).json({ error: err.message });
