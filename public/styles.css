@@ -171,7 +171,7 @@ code {
   font-size: 0.85em;
 }
 
-#products-table-wrapper, #expenses-table-wrapper, #orders-table-wrapper { overflow-x: auto; }
+#products-table-wrapper, #expenses-table-wrapper, #orders-table-wrapper, .table-wrapper { overflow-x: auto; }
 
 table {
   width: 100%;
@@ -185,6 +185,10 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.015); }
 
 .margin-negative { color: var(--danger); font-weight: 700; }
 .margin-ok { color: #8fb1ff; font-weight: 700; }
+
+.profit-green { color: #4ade80; font-weight: 700; }
+.profit-yellow { color: #facc15; font-weight: 700; }
+.profit-red { color: var(--danger); font-weight: 700; }
 
 .row-cost-input { width: 5.5rem; }
 

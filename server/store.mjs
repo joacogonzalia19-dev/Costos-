@@ -20,6 +20,7 @@ const PRODUCTS_KEY = 'costos:products';
 const TIENDANUBE_KEY = 'costos:tiendanube';
 const EXPENSES_KEY = 'costos:expenses';
 const ORDERS_KEY = 'costos:orders';
+const COMBOS_KEY = 'costos:combos';
 
 export const DEFAULT_SETTINGS = {
   currency: 'ARS',
@@ -143,12 +144,16 @@ export async function saveTiendaNubeConfig(partial) {
  * Gastos del negocio (producción, packaging, publicidad, herramientas
  * digitales, etc.), guardados bajo la clave "costos:expenses".
  *
- * Forma: { [id]: { name, amount, type: 'fixed' | 'variable' } }
+ * Forma: { [id]: { name, amount, type: 'fixed' | 'variable' | 'per_order' } }
  * - "fixed": gasto mensual (alquiler, suscripciones, presupuesto de ads fijo).
  *   Se reparte entre las ventas estimadas del mes para saber cuánto le toca
- *   a cada unidad vendida.
+ *   a cada unidad vendida (o a cada PEDIDO, para combos — ver abajo).
  * - "variable": gasto por unidad que aplica a todas las ventas por igual
  *   (ej. una tarjetita que va en cada pedido), en pesos por unidad directo.
+ * - "per_order": gasto que se cobra UNA VEZ por pedido, sin importar cuántas
+ *   unidades tenga (ej. publicidad: el costo de conseguir un cliente es el
+ *   mismo si te compra 1 cuadro o un combo de 3). Para la venta de un
+ *   producto individual (1 pedido = 1 unidad) se suma igual que "variable".
  */
 export async function getAllExpenses() {
   return readJson(EXPENSES_KEY, {});
@@ -158,13 +163,15 @@ function generateExpenseId() {
   return `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const EXPENSE_TYPES = new Set(['variable', 'per_order']);
+
 export async function createExpense({ name, amount, type }) {
   const all = await getAllExpenses();
   const id = generateExpenseId();
   all[id] = {
     name: name || 'Gasto sin nombre',
     amount: Number(amount) || 0,
-    type: type === 'variable' ? 'variable' : 'fixed',
+    type: EXPENSE_TYPES.has(type) ? type : 'fixed',
   };
   await writeJson(EXPENSES_KEY, all);
   return id;
@@ -180,6 +187,10 @@ export async function deleteExpense(id) {
  * Calcula, a partir de la lista de gastos y las ventas estimadas por mes,
  * cuánto le corresponde a CADA unidad vendida de gastos fijos y de gastos
  * variables generales. Se usa para sumarlo al costo base de cada producto.
+ *
+ * Devuelve por separado los "variable" (por unidad) de los "per_order" (por
+ * pedido): para un producto individual son intercambiables (1 pedido = 1
+ * unidad), pero para los combos (ver calculateComboRow) hay que distinguirlos.
  */
 export function summarizeExpenses(expenses, estimatedMonthlySales) {
   const items = Object.values(expenses || {});
@@ -187,9 +198,12 @@ export function summarizeExpenses(expenses, estimatedMonthlySales) {
   const totalVariablePerUnit = items
     .filter((e) => e.type === 'variable')
     .reduce((sum, e) => sum + (e.amount || 0), 0);
+  const totalVariablePerOrder = items
+    .filter((e) => e.type === 'per_order')
+    .reduce((sum, e) => sum + (e.amount || 0), 0);
   const sales = Number(estimatedMonthlySales) || 0;
   const fixedCostPerUnit = sales > 0 ? totalFixedMonthly / sales : 0;
-  return { totalFixedMonthly, totalVariablePerUnit, fixedCostPerUnit };
+  return { totalFixedMonthly, totalVariablePerUnit, totalVariablePerOrder, fixedCostPerUnit };
 }
 
 /**
@@ -255,4 +269,43 @@ export function activeOrderShippingPerUnit(orders) {
   const active = Object.values(orders || {}).find((o) => o.active);
   if (!active || !active.totalUnits) return 0;
   return active.shippingCost / active.totalUnits;
+}
+
+/**
+ * Configuración de "Precios por combo" (Cuadro Negro), guardada bajo
+ * "costos:combos": precio individual por medida y descuentos de Set x2/x3
+ * (únicos para todas las medidas). El costo de cada medida NO se guarda acá
+ * — se lee en vivo del producto manual "Cuadro Negro <medida>" ya cargado en
+ * "Productos", para no duplicar el dato.
+ */
+const DEFAULT_COMBO_SETTINGS = {
+  individualPrices: { '20x30': 41411, '30x40': 48724, '40x50': 61790 },
+  discountX2: 0.1,
+  discountX3: 0.15,
+};
+
+export async function getComboSettings() {
+  const stored = await readJson(COMBOS_KEY, null);
+  return {
+    ...DEFAULT_COMBO_SETTINGS,
+    ...(stored || {}),
+    individualPrices: {
+      ...DEFAULT_COMBO_SETTINGS.individualPrices,
+      ...((stored && stored.individualPrices) || {}),
+    },
+  };
+}
+
+export async function saveComboSettings(partial) {
+  const current = await getComboSettings();
+  const next = {
+    ...current,
+    ...partial,
+    individualPrices: {
+      ...current.individualPrices,
+      ...(partial.individualPrices || {}),
+    },
+  };
+  await writeJson(COMBOS_KEY, next);
+  return next;
 }

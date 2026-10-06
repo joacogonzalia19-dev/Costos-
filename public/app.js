@@ -1,5 +1,7 @@
 import { calculateSuggestedPrice } from '/shared/pricing.mjs';
 
+const COMBO_SIZES = ['20x30', '30x40', '40x50'];
+
 const fmt = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 2 });
 const pctFmt = (fraction) => `${(fraction * 100).toFixed(1)}%`;
 
@@ -10,9 +12,10 @@ const state = {
   tiendanubeConfig: null,
   oauthConfig: null,
   expenses: [],
-  expenseSummary: { totalFixedMonthly: 0, totalVariablePerUnit: 0, fixedCostPerUnit: 0 },
+  expenseSummary: { totalFixedMonthly: 0, totalVariablePerUnit: 0, totalVariablePerOrder: 0, fixedCostPerUnit: 0 },
   orders: [],
   supplierShippingPerUnit: 0,
+  combos: null,
 };
 
 // Ids de producto con el panel de "ajustes propios" (overrides) desplegado.
@@ -25,7 +28,11 @@ const OVERRIDE_FIELDS = [
   { key: 'marginPct', label: 'Margen deseado (%)' },
 ];
 
-const EXPENSE_TYPE_LABELS = { fixed: 'Fijo (mensual)', variable: 'Variable (por unidad)' };
+const EXPENSE_TYPE_LABELS = {
+  fixed: 'Fijo (mensual)',
+  variable: 'Variable (por unidad)',
+  per_order: 'Variable (por pedido)',
+};
 
 async function api(path, options) {
   const res = await fetch(path, {
@@ -50,15 +57,17 @@ function fractionFromPercentInput(value) {
 }
 
 async function loadAll() {
-  const [settings, statusResp, productsResp, tnConfig, oauthConfig, expensesResp, ordersResp] = await Promise.all([
-    api('/api/settings'),
-    api('/api/tiendanube/status'),
-    api('/api/products'),
-    api('/api/tiendanube/config'),
-    api('/api/tiendanube/oauth-config'),
-    api('/api/expenses'),
-    api('/api/orders'),
-  ]);
+  const [settings, statusResp, productsResp, tnConfig, oauthConfig, expensesResp, ordersResp, combosResp] =
+    await Promise.all([
+      api('/api/settings'),
+      api('/api/tiendanube/status'),
+      api('/api/products'),
+      api('/api/tiendanube/config'),
+      api('/api/tiendanube/oauth-config'),
+      api('/api/expenses'),
+      api('/api/orders'),
+      api('/api/combos'),
+    ]);
   state.settings = settings;
   state.configured = statusResp.configured;
   state.products = productsResp.products;
@@ -68,6 +77,7 @@ async function loadAll() {
   state.expenseSummary = expensesResp.summary;
   state.orders = ordersResp.orders;
   state.supplierShippingPerUnit = ordersResp.supplierShippingPerUnit;
+  state.combos = combosResp;
   renderStatus();
   renderSettingsForm();
   renderTiendaNubeForm();
@@ -75,6 +85,8 @@ async function loadAll() {
   renderExpensesTable();
   renderOrdersTable();
   renderProductsTable();
+  renderCombosForm();
+  renderCombosTables();
 }
 
 /** Muestra el resultado del flujo OAuth (?oauthSuccess=storeId / ?oauthError=mensaje) y limpia la URL. */
@@ -164,10 +176,14 @@ function renderExpensesTable() {
   }
 
   const s = state.expenseSummary;
-  document.getElementById('expenses-summary').textContent =
+  let summaryText =
     `Total gastos fijos: ${fmt.format(s.totalFixedMonthly)}/mes → ${fmt.format(s.fixedCostPerUnit)} por unidad ` +
     `(con ${state.settings.estimatedMonthlySales} ventas estimadas/mes). ` +
     `Total gastos variables: ${fmt.format(s.totalVariablePerUnit)} por unidad.`;
+  if (s.totalVariablePerOrder > 0) {
+    summaryText += ` Total gastos por pedido: ${fmt.format(s.totalVariablePerOrder)} (una vez por pedido; en productos individuales se suma igual que los de por unidad).`;
+  }
+  document.getElementById('expenses-summary').textContent = summaryText;
 }
 
 function renderOrdersTable() {
@@ -237,16 +253,134 @@ function renderOrdersTable() {
     : 'No hay ningún pedido activo: no se suma envío de proveedor a los productos.';
 }
 
+function renderCombosForm() {
+  const cs = state.combos?.comboSettings;
+  if (!cs) return;
+  document.getElementById('combo-price-20x30').value = cs.individualPrices['20x30'];
+  document.getElementById('combo-price-30x40').value = cs.individualPrices['30x40'];
+  document.getElementById('combo-price-40x50').value = cs.individualPrices['40x50'];
+  document.getElementById('combo-discount-x2').value = (cs.discountX2 * 100).toFixed(2);
+  document.getElementById('combo-discount-x3').value = (cs.discountX3 * 100).toFixed(2);
+}
+
+/** Verde ≥30%, amarillo entre 25% y 30%, rojo <25% (ver pedido del usuario). */
+function comboProfitClass(pct) {
+  if (pct >= 0.3) return 'profit-green';
+  if (pct >= 0.25) return 'profit-yellow';
+  return 'profit-red';
+}
+
+const COMBO_TABLE_COLUMNS = [
+  'Pedido',
+  'Precio total',
+  'Precio/cuadro',
+  'Desc. vs individual',
+  'Costo total',
+  'Ganancia neta',
+  'Ganancia/cuadro',
+  '% s/precio',
+  '% s/costo',
+];
+
+function renderCombosTables() {
+  const container = document.getElementById('combos-tables');
+  container.innerHTML = '';
+  const sizes = state.combos?.sizes || {};
+
+  for (const size of COMBO_SIZES) {
+    const data = sizes[size];
+    if (!data) continue;
+
+    const heading = document.createElement('h3');
+    heading.textContent = size;
+    container.appendChild(heading);
+
+    if (data.missing) {
+      const warn = document.createElement('p');
+      warn.className = 'muted';
+      warn.textContent = data.warning;
+      container.appendChild(warn);
+      continue;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'table-wrapper';
+
+    const table = document.createElement('table');
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    for (const col of COMBO_TABLE_COLUMNS) {
+      const th = document.createElement('th');
+      th.textContent = col;
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    for (const row of data.rows) {
+      const tr = document.createElement('tr');
+
+      const labelTd = document.createElement('td');
+      labelTd.textContent = row.label;
+      tr.appendChild(labelTd);
+
+      const priceTotalTd = document.createElement('td');
+      priceTotalTd.textContent = fmt.format(row.priceTotal);
+      tr.appendChild(priceTotalTd);
+
+      const pricePerUnitTd = document.createElement('td');
+      pricePerUnitTd.textContent = fmt.format(row.pricePerUnit);
+      tr.appendChild(pricePerUnitTd);
+
+      const discountTd = document.createElement('td');
+      discountTd.textContent = pctFmt(row.discountVsIndividual);
+      tr.appendChild(discountTd);
+
+      const costTotalTd = document.createElement('td');
+      costTotalTd.textContent = fmt.format(row.costTotal);
+      tr.appendChild(costTotalTd);
+
+      const profitTd = document.createElement('td');
+      profitTd.textContent = fmt.format(row.profit);
+      tr.appendChild(profitTd);
+
+      const profitPerUnitTd = document.createElement('td');
+      profitPerUnitTd.textContent = fmt.format(row.profitPerUnit);
+      tr.appendChild(profitPerUnitTd);
+
+      const profitPctPriceTd = document.createElement('td');
+      profitPctPriceTd.textContent = pctFmt(row.profitPctOnPrice);
+      profitPctPriceTd.className = comboProfitClass(row.profitPctOnPrice);
+      tr.appendChild(profitPctPriceTd);
+
+      const profitPctCostTd = document.createElement('td');
+      profitPctCostTd.textContent = pctFmt(row.profitPctOnCost);
+      tr.appendChild(profitPctCostTd);
+
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+    container.appendChild(wrapper);
+  }
+}
+
 function effectiveInputsFor(product) {
   const overrides = product.overrides || {};
   return {
     cost: product.cost,
     shipping: product.shipping,
     fixedCostPerUnit: state.expenseSummary.fixedCostPerUnit,
-    // El envío del pedido activo se suma como costo variable más, igual que
-    // los gastos variables (no viene incluido en expenseSummary porque ese
-    // viene de /api/expenses, que no sabe nada de pedidos).
-    variableCostPerUnit: state.expenseSummary.totalVariablePerUnit + state.supplierShippingPerUnit,
+    // El envío del pedido activo y los gastos "por pedido" se suman como
+    // costo variable más, igual que los gastos "por unidad" (para un
+    // producto individual, 1 pedido = 1 unidad). Ninguno de los dos viene
+    // incluido en expenseSummary porque ese viene de /api/expenses, que no
+    // sabe nada de pedidos al proveedor.
+    variableCostPerUnit:
+      state.expenseSummary.totalVariablePerUnit +
+      state.expenseSummary.totalVariablePerOrder +
+      state.supplierShippingPerUnit,
     paymentFeePct: overrides.paymentFeePct ?? state.settings.paymentFeePct,
     taxPct: overrides.taxPct ?? state.settings.taxPct,
     marginPct: overrides.marginPct ?? state.settings.marginPct,
@@ -477,6 +611,23 @@ document.getElementById('add-order-form').addEventListener('submit', async (e) =
     body: JSON.stringify({ name, date, shippingCost, totalUnits }),
   });
   e.target.reset();
+  await loadAll();
+});
+
+document.getElementById('combo-settings-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await api('/api/combos', {
+    method: 'PUT',
+    body: JSON.stringify({
+      individualPrices: {
+        '20x30': Number(document.getElementById('combo-price-20x30').value) || 0,
+        '30x40': Number(document.getElementById('combo-price-30x40').value) || 0,
+        '40x50': Number(document.getElementById('combo-price-40x50').value) || 0,
+      },
+      discountX2: fractionFromPercentInput(document.getElementById('combo-discount-x2').value),
+      discountX3: fractionFromPercentInput(document.getElementById('combo-discount-x3').value),
+    }),
+  });
   await loadAll();
 });
 

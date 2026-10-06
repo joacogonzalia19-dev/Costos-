@@ -117,3 +117,69 @@ export function calculateBreakdownForPrice(price, inputs) {
     },
   };
 }
+
+/**
+ * Calcula precio, costo y ganancia de un "pedido" de combo (vender N cuadros
+ * de la misma medida juntos, con un descuento sobre el precio individual).
+ *
+ * A diferencia de calculateSuggestedPrice (que DESPEJA el precio a partir de
+ * un margen deseado), acá el precio ya está definido (individual × cantidad ×
+ * descuento) y lo que se calcula es la ganancia que deja ese precio — por eso
+ * la comisión y los impuestos se calculan directo sobre ese precio, sin
+ * necesidad de despejar nada.
+ *
+ * Distingue gastos "por unidad" (se multiplican por la cantidad de cuadros
+ * del pedido) de gastos "por pedido" (fijos del negocio ya prorrateados, y
+ * gastos variables marcados como "por pedido": se cobran una sola vez,
+ * sin importar si el pedido es de 1, 2 o 3 cuadros).
+ *
+ * @param {Object} inputs
+ * @param {number} inputs.individualPrice   Precio de venta de un cuadro suelto de esta medida.
+ * @param {number} inputs.quantity          Cantidad de cuadros del pedido (1, 2 o 3).
+ * @param {number} inputs.discount          Descuento sobre el precio individual, como fracción (0.10 = 10%).
+ * @param {number} inputs.costPerUnit       Costo de compra de un cuadro de esta medida.
+ * @param {number} inputs.supplierShippingPerUnit Envío del pedido al proveedor activo, por unidad.
+ * @param {number} inputs.variablePerUnit   Gastos variables "por unidad" (se multiplican por la cantidad).
+ * @param {number} inputs.variablePerOrder  Gastos variables "por pedido" (se cobran una sola vez).
+ * @param {number} inputs.fixedPerOrder     Gastos fijos ya prorrateados (una "venta" = un pedido acá).
+ * @param {number} inputs.paymentFeePct     Comisión de medios de pago, como fracción.
+ * @param {number} inputs.taxPct            Impuestos, como fracción.
+ */
+export function calculateComboRow(inputs) {
+  const individualPrice = Number(inputs.individualPrice) || 0;
+  const quantity = Number(inputs.quantity) || 0;
+  const discount = Number(inputs.discount) || 0;
+  const costPerUnit = Number(inputs.costPerUnit) || 0;
+  const supplierShippingPerUnit = Number(inputs.supplierShippingPerUnit) || 0;
+  const variablePerUnit = Number(inputs.variablePerUnit) || 0;
+  const variablePerOrder = Number(inputs.variablePerOrder) || 0;
+  const fixedPerOrder = Number(inputs.fixedPerOrder) || 0;
+  const paymentFeePct = Number(inputs.paymentFeePct) || 0;
+  const taxPct = Number(inputs.taxPct) || 0;
+
+  const priceTotal = Math.round(individualPrice * quantity * (1 - discount));
+  const pricePerUnit = quantity > 0 ? priceTotal / quantity : 0;
+  const discountVsIndividual = individualPrice > 0 ? 1 - pricePerUnit / individualPrice : 0;
+
+  const costTotal =
+    quantity * (costPerUnit + supplierShippingPerUnit + variablePerUnit) +
+    variablePerOrder +
+    fixedPerOrder +
+    priceTotal * (paymentFeePct + taxPct);
+
+  const profit = priceTotal - costTotal;
+  const profitPerUnit = quantity > 0 ? profit / quantity : 0;
+  const profitPctOnPrice = priceTotal > 0 ? profit / priceTotal : 0;
+  const profitPctOnCost = costTotal > 0 ? profit / costTotal : 0;
+
+  return {
+    priceTotal,
+    pricePerUnit,
+    discountVsIndividual,
+    costTotal,
+    profit,
+    profitPerUnit,
+    profitPctOnPrice,
+    profitPctOnCost,
+  };
+}

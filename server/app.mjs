@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import 'dotenv/config';
 
-import { calculateSuggestedPrice, calculateBreakdownForPrice } from '../shared/pricing.mjs';
+import { calculateSuggestedPrice, calculateBreakdownForPrice, calculateComboRow } from '../shared/pricing.mjs';
 import * as store from './store.mjs';
 import * as tiendanube from './tiendanube.mjs';
 import { requireAuth, checkPassword, issueSessionCookie, clearSessionCookie } from './auth.mjs';
@@ -64,14 +64,26 @@ async function getExpenseSummary() {
   const orders = await store.getAllOrders();
   const base = store.summarizeExpenses(expenses, settings.estimatedMonthlySales);
   const supplierShippingPerUnit = store.activeOrderShippingPerUnit(orders);
-  // El envío del pedido activo se suma al mismo "pozo" que los gastos
-  // variables generales: es un monto por unidad que se suma igual a todos
-  // los productos, exactamente como cualquier otro gasto variable.
+  // El envío del pedido activo y los gastos "por pedido" se suman al mismo
+  // "pozo" que los gastos variables generales: para la venta de UN producto
+  // individual, un pedido ES una unidad, así que se suman igual que
+  // cualquier otro gasto variable.
   return {
     ...base,
     supplierShippingPerUnit,
-    totalVariablePerUnit: base.totalVariablePerUnit + supplierShippingPerUnit,
+    totalVariablePerUnit: base.totalVariablePerUnit + base.totalVariablePerOrder + supplierShippingPerUnit,
   };
+}
+
+/** Busca el producto manual "Cuadro Negro <medida>" cargado en Productos (match exacto, sin mayúsculas/espacios de más). */
+function findCuadroNegroProduct(allProductData, size) {
+  const target = `cuadro negro ${size}`.toLowerCase();
+  for (const data of Object.values(allProductData)) {
+    if (data.manual && (data.manual.name || '').trim().toLowerCase() === target) {
+      return { cost: Number(data.cost) || 0 };
+    }
+  }
+  return null;
 }
 
 app.get('/api/tiendanube/status', async (req, res) => {
@@ -237,6 +249,87 @@ app.delete('/api/orders/:id', async (req, res) => {
   try {
     await store.deleteOrder(req.params.id);
     res.status(204).end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const COMBO_SIZES = ['20x30', '30x40', '40x50'];
+
+// "Precios por combo": compara vender Individual / Set x2 / Set x3 de cada
+// medida de "Cuadro Negro", usando el costo real cargado en Productos, el
+// envío del pedido al proveedor activo y los gastos del negocio (ver
+// calculateComboRow en shared/pricing.mjs para el detalle de la fórmula).
+app.get('/api/combos', async (req, res) => {
+  try {
+    const settings = await store.getSettings();
+    const expenses = await store.getAllExpenses();
+    const orders = await store.getAllOrders();
+    const allProductData = await store.getAllProductData();
+    const comboSettings = await store.getComboSettings();
+
+    const expenseBreakdown = store.summarizeExpenses(expenses, settings.estimatedMonthlySales);
+    const supplierShippingPerUnit = store.activeOrderShippingPerUnit(orders);
+
+    const sizes = {};
+    for (const size of COMBO_SIZES) {
+      const individualPrice = comboSettings.individualPrices[size] ?? 0;
+      const product = findCuadroNegroProduct(allProductData, size);
+
+      if (!product) {
+        sizes[size] = {
+          individualPrice,
+          missing: true,
+          warning: `No encontré un producto manual llamado "Cuadro Negro ${size}" en Productos — cargalo ahí para ver los costos de esta medida.`,
+          rows: [],
+        };
+        continue;
+      }
+
+      const rowConfigs = [
+        { label: 'Individual', quantity: 1, discount: 0 },
+        { label: 'Set x2', quantity: 2, discount: comboSettings.discountX2 },
+        { label: 'Set x3', quantity: 3, discount: comboSettings.discountX3 },
+      ];
+
+      sizes[size] = {
+        individualPrice,
+        missing: false,
+        rows: rowConfigs.map(({ label, quantity, discount }) => ({
+          label,
+          quantity,
+          discount,
+          ...calculateComboRow({
+            individualPrice,
+            quantity,
+            discount,
+            costPerUnit: product.cost,
+            supplierShippingPerUnit,
+            variablePerUnit: expenseBreakdown.totalVariablePerUnit,
+            variablePerOrder: expenseBreakdown.totalVariablePerOrder,
+            fixedPerOrder: expenseBreakdown.fixedCostPerUnit,
+            paymentFeePct: settings.paymentFeePct,
+            taxPct: settings.taxPct,
+          }),
+        })),
+      };
+    }
+
+    res.json({ sizes, comboSettings });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/combos', async (req, res) => {
+  try {
+    const { individualPrices, discountX2, discountX3 } = req.body || {};
+    const partial = {};
+    if (individualPrices !== undefined) partial.individualPrices = individualPrices;
+    if (discountX2 !== undefined) partial.discountX2 = Number(discountX2) || 0;
+    if (discountX3 !== undefined) partial.discountX3 = Number(discountX3) || 0;
+    const saved = await store.saveComboSettings(partial);
+    res.json(saved);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
