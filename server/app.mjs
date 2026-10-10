@@ -3,7 +3,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import 'dotenv/config';
 
-import { calculateSuggestedPrice, calculateBreakdownForPrice, calculateComboRow } from '../shared/pricing.mjs';
+import {
+  calculateSuggestedPrice,
+  calculateBreakdownForPrice,
+  calculateComboRow,
+  calculateAdSpendMonthRow,
+} from '../shared/pricing.mjs';
 import * as store from './store.mjs';
 import * as tiendanube from './tiendanube.mjs';
 import { requireAuth, checkPassword, issueSessionCookie, clearSessionCookie } from './auth.mjs';
@@ -330,6 +335,133 @@ app.put('/api/combos', async (req, res) => {
     if (discountX3 !== undefined) partial.discountX3 = Number(discountX3) || 0;
     const saved = await store.saveComboSettings(partial);
     res.json(saved);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function isValidDateString(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(value).getTime());
+}
+
+function isValidMonthString(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}$/.test(value);
+}
+
+function normalizeNullableNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function monthKeyFromDate(dateStr) {
+  return dateStr.slice(0, 7);
+}
+
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// "Publicidad mes a mes": compara lo que se va cargando a la tarjeta de
+// pauta contra lo que la plataforma gastó realmente cada mes, y calcula el
+// costo por cliente real contra el estimado (el gasto de "Gastos del
+// negocio" cuyo nombre contiene "publicidad" — ver
+// calculateAdSpendMonthRow en shared/pricing.mjs para el detalle).
+app.get('/api/ad-spend', async (req, res) => {
+  try {
+    const expenses = await store.getAllExpenses();
+    const chargesMap = await store.getAllAdCharges();
+    const monthsMap = await store.getAllAdMonths();
+    const estimatedCostPerClient = store.estimatedCostPerClientFromExpenses(expenses);
+
+    const charges = Object.entries(chargesMap)
+      .map(([id, c]) => ({ id, ...c }))
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
+    const chargedByMonth = {};
+    for (const charge of charges) {
+      const key = monthKeyFromDate(charge.date);
+      chargedByMonth[key] = (chargedByMonth[key] || 0) + charge.amount;
+    }
+
+    // Siempre se muestran todos los meses con cargas o datos guardados, y
+    // siempre el mes actual (aunque todavía no tenga nada cargado).
+    const allMonthKeys = new Set([...Object.keys(chargedByMonth), ...Object.keys(monthsMap), currentMonthKey()]);
+
+    const months = [...allMonthKeys]
+      .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
+      .map((month) => {
+        const saved = monthsMap[month] || {};
+        return {
+          month,
+          ...calculateAdSpendMonthRow({
+            chargedToCard: chargedByMonth[month] || 0,
+            realSpend: saved.realSpend ?? null,
+            sales: saved.sales ?? null,
+            estimatedCostPerClient,
+          }),
+        };
+      });
+
+    let totalCharged = 0;
+    let totalRealSpend = 0;
+    let totalSales = 0;
+    for (const m of months) {
+      totalCharged += m.chargedToCard;
+      if (m.realSpend !== null) totalRealSpend += m.realSpend;
+      if (m.sales !== null) totalSales += m.sales;
+    }
+    const avgCostPerClientReal = totalSales > 0 ? totalRealSpend / totalSales : null;
+
+    res.json({
+      charges,
+      months,
+      estimatedCostPerClient,
+      summary: { totalCharged, totalRealSpend, estimatedCostPerClient, avgCostPerClientReal },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ad-spend/charges', async (req, res) => {
+  try {
+    const { date, amount, note } = req.body || {};
+    if (!isValidDateString(date)) {
+      return res.status(400).json({ error: 'La fecha es obligatoria y debe tener formato YYYY-MM-DD.' });
+    }
+    const amountNum = Number(amount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      return res.status(400).json({ error: 'El monto es obligatorio y debe ser mayor a 0.' });
+    }
+    const id = await store.createAdCharge({ date, amount: amountNum, note });
+    res.json({ id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/ad-spend/charges/:id', async (req, res) => {
+  try {
+    await store.deleteAdCharge(req.params.id);
+    res.status(204).end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/ad-spend/months/:month', async (req, res) => {
+  try {
+    if (!isValidMonthString(req.params.month)) {
+      return res.status(400).json({ error: 'El mes debe tener formato YYYY-MM.' });
+    }
+    const { realSpend, sales } = req.body || {};
+    const saved = await store.saveAdMonth(req.params.month, {
+      realSpend: normalizeNullableNumber(realSpend),
+      sales: normalizeNullableNumber(sales),
+    });
+    res.json({ month: req.params.month, ...saved });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

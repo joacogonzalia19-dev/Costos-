@@ -2,6 +2,26 @@ import { calculateSuggestedPrice } from '/shared/pricing.mjs';
 
 const COMBO_SIZES = ['20x30', '30x40', '40x50'];
 
+const MONTH_NAMES = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+];
+
+function formatMonthLabel(monthKey) {
+  const [year, month] = monthKey.split('-').map(Number);
+  return `${MONTH_NAMES[month - 1]} ${year}`;
+}
+
 const fmt = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 2 });
 const pctFmt = (fraction) => `${(fraction * 100).toFixed(1)}%`;
 
@@ -16,6 +36,7 @@ const state = {
   orders: [],
   supplierShippingPerUnit: 0,
   combos: null,
+  adSpend: null,
 };
 
 // Ids de producto con el panel de "ajustes propios" (overrides) desplegado.
@@ -57,7 +78,7 @@ function fractionFromPercentInput(value) {
 }
 
 async function loadAll() {
-  const [settings, statusResp, productsResp, tnConfig, oauthConfig, expensesResp, ordersResp, combosResp] =
+  const [settings, statusResp, productsResp, tnConfig, oauthConfig, expensesResp, ordersResp, combosResp, adSpendResp] =
     await Promise.all([
       api('/api/settings'),
       api('/api/tiendanube/status'),
@@ -67,6 +88,7 @@ async function loadAll() {
       api('/api/expenses'),
       api('/api/orders'),
       api('/api/combos'),
+      api('/api/ad-spend'),
     ]);
   state.settings = settings;
   state.configured = statusResp.configured;
@@ -78,6 +100,7 @@ async function loadAll() {
   state.orders = ordersResp.orders;
   state.supplierShippingPerUnit = ordersResp.supplierShippingPerUnit;
   state.combos = combosResp;
+  state.adSpend = adSpendResp;
   renderStatus();
   renderSettingsForm();
   renderTiendaNubeForm();
@@ -87,6 +110,8 @@ async function loadAll() {
   renderProductsTable();
   renderCombosForm();
   renderCombosTables();
+  renderAdChargesTable();
+  renderAdMonthsTable();
 }
 
 /** Muestra el resultado del flujo OAuth (?oauthSuccess=storeId / ?oauthError=mensaje) y limpia la URL. */
@@ -251,6 +276,130 @@ function renderOrdersTable() {
   document.getElementById('orders-summary').textContent = activeOrder
     ? `Envío proveedor por unidad (pedido activo: "${activeOrder.name}"): ${fmt.format(state.supplierShippingPerUnit)}.`
     : 'No hay ningún pedido activo: no se suma envío de proveedor a los productos.';
+}
+
+function renderAdChargesTable() {
+  const tbody = document.getElementById('ad-charges-tbody');
+  tbody.innerHTML = '';
+  const charges = state.adSpend?.charges || [];
+
+  for (const charge of charges) {
+    const tr = document.createElement('tr');
+
+    const dateTd = document.createElement('td');
+    dateTd.textContent = charge.date;
+    tr.appendChild(dateTd);
+
+    const amountTd = document.createElement('td');
+    amountTd.textContent = fmt.format(charge.amount);
+    tr.appendChild(amountTd);
+
+    const noteTd = document.createElement('td');
+    noteTd.textContent = charge.note || '—';
+    tr.appendChild(noteTd);
+
+    const actionsTd = document.createElement('td');
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'secondary';
+    deleteBtn.textContent = 'Eliminar';
+    deleteBtn.onclick = async () => {
+      if (!confirm(`¿Eliminar la carga de ${fmt.format(charge.amount)} del ${charge.date}?`)) return;
+      await api(`/api/ad-spend/charges/${charge.id}`, { method: 'DELETE' });
+      await loadAll();
+    };
+    actionsTd.appendChild(deleteBtn);
+    tr.appendChild(actionsTd);
+
+    tbody.appendChild(tr);
+  }
+}
+
+function renderAdMonthsTable() {
+  const tbody = document.getElementById('ad-months-tbody');
+  tbody.innerHTML = '';
+  const months = state.adSpend?.months || [];
+
+  for (const m of months) {
+    const tr = document.createElement('tr');
+
+    const monthTd = document.createElement('td');
+    monthTd.textContent = formatMonthLabel(m.month);
+    tr.appendChild(monthTd);
+
+    const chargedTd = document.createElement('td');
+    chargedTd.textContent = fmt.format(m.chargedToCard);
+    tr.appendChild(chargedTd);
+
+    const realSpendTd = document.createElement('td');
+    const realSpendInput = document.createElement('input');
+    realSpendInput.type = 'number';
+    realSpendInput.step = '0.01';
+    realSpendInput.min = '0';
+    realSpendInput.className = 'row-cost-input';
+    realSpendInput.value = m.realSpend ?? '';
+    realSpendTd.appendChild(realSpendInput);
+    tr.appendChild(realSpendTd);
+
+    const diffTd = document.createElement('td');
+    diffTd.textContent = m.difference === null ? '—' : fmt.format(m.difference);
+    tr.appendChild(diffTd);
+
+    const salesTd = document.createElement('td');
+    const salesInput = document.createElement('input');
+    salesInput.type = 'number';
+    salesInput.step = '1';
+    salesInput.min = '0';
+    salesInput.className = 'row-cost-input';
+    salesInput.value = m.sales ?? '';
+    salesTd.appendChild(salesInput);
+    tr.appendChild(salesTd);
+
+    const costPerClientTd = document.createElement('td');
+    costPerClientTd.textContent = m.costPerClientReal === null ? '—' : fmt.format(m.costPerClientReal);
+    tr.appendChild(costPerClientTd);
+
+    const vsEstimadoTd = document.createElement('td');
+    if (m.vsEstimadoAmount === null) {
+      vsEstimadoTd.textContent = '—';
+    } else {
+      const sign = m.vsEstimadoAmount <= 0 ? 'por debajo' : 'por encima';
+      const pctText = m.vsEstimadoPct === null ? '' : ` (${pctFmt(Math.abs(m.vsEstimadoPct))} ${sign})`;
+      vsEstimadoTd.textContent = `${fmt.format(m.vsEstimadoAmount)}${pctText}`;
+      vsEstimadoTd.className = m.vsEstimadoAmount <= 0 ? 'profit-green' : 'profit-red';
+    }
+    tr.appendChild(vsEstimadoTd);
+
+    const actionsTd = document.createElement('td');
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'secondary';
+    saveBtn.textContent = 'Guardar';
+    saveBtn.onclick = async () => {
+      try {
+        await api(`/api/ad-spend/months/${m.month}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            realSpend: realSpendInput.value === '' ? null : realSpendInput.value,
+            sales: salesInput.value === '' ? null : salesInput.value,
+          }),
+        });
+        await loadAll();
+      } catch (err) {
+        alert(`No se pudo guardar: ${err.message}`);
+      }
+    };
+    actionsTd.appendChild(saveBtn);
+    tr.appendChild(actionsTd);
+
+    tbody.appendChild(tr);
+  }
+
+  const s = state.adSpend?.summary;
+  if (s) {
+    document.getElementById('ad-spend-summary').textContent =
+      `Total cargado: ${fmt.format(s.totalCharged)}. Total invertido real: ${fmt.format(s.totalRealSpend)}. ` +
+      `Costo por cliente estimado: ${fmt.format(s.estimatedCostPerClient)}. ` +
+      `Costo real por cliente promedio: ${s.avgCostPerClientReal === null ? '—' : fmt.format(s.avgCostPerClientReal)}.`;
+  }
 }
 
 function renderCombosForm() {
@@ -612,6 +761,23 @@ document.getElementById('add-order-form').addEventListener('submit', async (e) =
   });
   e.target.reset();
   await loadAll();
+});
+
+document.getElementById('add-ad-charge-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const date = document.getElementById('new-ad-charge-date').value;
+  const amount = document.getElementById('new-ad-charge-amount').value;
+  const note = document.getElementById('new-ad-charge-note').value;
+  try {
+    await api('/api/ad-spend/charges', {
+      method: 'POST',
+      body: JSON.stringify({ date, amount, note }),
+    });
+    e.target.reset();
+    await loadAll();
+  } catch (err) {
+    alert(`No se pudo agregar la carga: ${err.message}`);
+  }
 });
 
 document.getElementById('combo-settings-form').addEventListener('submit', async (e) => {

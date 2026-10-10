@@ -193,6 +193,67 @@
       <p id="orders-summary" class="muted"></p>
     </section>
 
+    <section id="ad-spend-section" class="card">
+      <h2>Publicidad mes a mes</h2>
+      <p class="muted">
+        Anotá lo que vas cargando a la tarjeta de pauta y comparalo contra lo
+        que gastó realmente la plataforma cada mes, para ver tu costo por
+        cliente real contra el estimado que tenés cargado en "Gastos del
+        negocio" (el gasto cuyo nombre contiene "publicidad").
+      </p>
+
+      <h3>Cargas a la tarjeta</h3>
+      <form id="add-ad-charge-form" class="add-product-grid">
+        <label>
+          Fecha
+          <input type="date" id="new-ad-charge-date" required />
+        </label>
+        <label>
+          Monto
+          <input type="number" step="0.01" min="0.01" id="new-ad-charge-amount" required />
+        </label>
+        <label>
+          Nota (opcional)
+          <input type="text" id="new-ad-charge-note" placeholder="Ej: recarga mensual" />
+        </label>
+        <button type="submit">Agregar carga</button>
+      </form>
+
+      <div class="table-wrapper">
+        <table id="ad-charges-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Monto</th>
+              <th>Nota</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="ad-charges-tbody"></tbody>
+        </table>
+      </div>
+
+      <h3>Resumen por mes</h3>
+      <div class="table-wrapper">
+        <table id="ad-months-table">
+          <thead>
+            <tr>
+              <th>Mes</th>
+              <th>Cargado a la tarjeta</th>
+              <th>Inversión real</th>
+              <th>Diferencia</th>
+              <th>Ventas</th>
+              <th>Costo real/cliente</th>
+              <th>Vs. estimado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="ad-months-tbody"></tbody>
+        </table>
+      </div>
+      <p id="ad-spend-summary" class="muted"></p>
+    </section>
+
     <section id="add-product-section" class="card">
       <h2>Agregar producto manual</h2>
       <p class="muted">Para simular precios sin depender de Tienda Nube.</p>

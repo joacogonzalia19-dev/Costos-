@@ -183,3 +183,40 @@ export function calculateComboRow(inputs) {
     profitPctOnCost,
   };
 }
+
+/**
+ * Calcula, para UN mes de "Publicidad mes a mes", la diferencia entre lo
+ * cargado a la tarjeta y la inversión real, el costo por cliente real, y
+ * cómo se compara contra el costo por cliente estimado (de "Gastos del
+ * negocio"). `realSpend` y `sales` pueden ser `null` (todavía no se cargó
+ * ese dato): en ese caso, todo lo que depende de ellos también es `null`
+ * en vez de un número engañoso (ej. 0).
+ *
+ * @param {Object} inputs
+ * @param {number} inputs.chargedToCard        Suma de las cargas a la tarjeta en el mes.
+ * @param {number|null} inputs.realSpend        Lo que gastó realmente la plataforma de pauta (o null, sin cargar).
+ * @param {number|null} inputs.sales            Ventas/clientes del mes (o null, sin cargar).
+ * @param {number} inputs.estimatedCostPerClient Costo por cliente estimado (de "Gastos del negocio").
+ */
+export function calculateAdSpendMonthRow(inputs) {
+  const chargedToCard = Number(inputs.chargedToCard) || 0;
+  const realSpend = inputs.realSpend === null || inputs.realSpend === undefined ? null : Number(inputs.realSpend) || 0;
+  const sales = inputs.sales === null || inputs.sales === undefined ? null : Number(inputs.sales) || 0;
+  const estimatedCostPerClient = Number(inputs.estimatedCostPerClient) || 0;
+
+  const difference = realSpend === null ? null : chargedToCard - realSpend;
+  const costPerClientReal = realSpend !== null && sales ? realSpend / sales : null;
+  const vsEstimadoAmount = costPerClientReal === null ? null : costPerClientReal - estimatedCostPerClient;
+  const vsEstimadoPct =
+    costPerClientReal === null || estimatedCostPerClient === 0 ? null : vsEstimadoAmount / estimatedCostPerClient;
+
+  return {
+    chargedToCard,
+    realSpend,
+    sales,
+    difference,
+    costPerClientReal,
+    vsEstimadoAmount,
+    vsEstimadoPct,
+  };
+}

@@ -21,6 +21,8 @@ const TIENDANUBE_KEY = 'costos:tiendanube';
 const EXPENSES_KEY = 'costos:expenses';
 const ORDERS_KEY = 'costos:orders';
 const COMBOS_KEY = 'costos:combos';
+const AD_CHARGES_KEY = 'costos:adspend-charges';
+const AD_MONTHS_KEY = 'costos:adspend-months';
 
 export const DEFAULT_SETTINGS = {
   currency: 'ARS',
@@ -308,4 +310,53 @@ export async function saveComboSettings(partial) {
   };
   await writeJson(COMBOS_KEY, next);
   return next;
+}
+
+/**
+ * "Publicidad mes a mes": lo que se va cargando a la tarjeta de pauta
+ * ("cargas", bajo "costos:adspend-charges") vs. lo que gastó realmente la
+ * plataforma y las ventas de cada mes ("costos:adspend-months"), para
+ * comparar el costo por cliente real contra el estimado.
+ *
+ * Forma de una carga: { [id]: { date: 'YYYY-MM-DD', amount, note } }
+ * Forma de un mes: { [mes 'YYYY-MM']: { realSpend: number|null, sales: number|null } }
+ */
+export async function getAllAdCharges() {
+  return readJson(AD_CHARGES_KEY, {});
+}
+
+function generateAdChargeId() {
+  return `adcharge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function createAdCharge({ date, amount, note }) {
+  const all = await getAllAdCharges();
+  const id = generateAdChargeId();
+  all[id] = { date, amount: Number(amount) || 0, note: note ? String(note) : '' };
+  await writeJson(AD_CHARGES_KEY, all);
+  return id;
+}
+
+export async function deleteAdCharge(id) {
+  const all = await getAllAdCharges();
+  delete all[id];
+  await writeJson(AD_CHARGES_KEY, all);
+}
+
+export async function getAllAdMonths() {
+  return readJson(AD_MONTHS_KEY, {});
+}
+
+export async function saveAdMonth(month, { realSpend, sales }) {
+  const all = await getAllAdMonths();
+  all[month] = { realSpend, sales };
+  await writeJson(AD_MONTHS_KEY, all);
+  return all[month];
+}
+
+/** Suma los gastos cuyo nombre contiene "publicidad" (sin importar mayúsculas): el costo por cliente estimado. */
+export function estimatedCostPerClientFromExpenses(expenses) {
+  return Object.values(expenses || {})
+    .filter((e) => (e.name || '').toLowerCase().includes('publicidad'))
+    .reduce((sum, e) => sum + (e.amount || 0), 0);
 }
